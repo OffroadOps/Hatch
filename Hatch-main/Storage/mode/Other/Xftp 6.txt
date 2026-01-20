@@ -1,8 +1,0 @@
-# Xftp 6, 0
-CrashSender.exe
-installanchorservice.exe
-LiveUpdate.exe
-nsregister.exe
-Xagent.exe
-Xftp.exe
-Xtransport.exe

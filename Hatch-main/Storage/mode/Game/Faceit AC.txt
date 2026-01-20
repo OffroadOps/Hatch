@@ -1,3 +1,0 @@
-# Faceit AC, 0
-faceitclient.exe
-faceitservice.exe
