@@ -1,8 +1,14 @@
-name: Netch Release CI
+name: Hatch Release CI
 on:
   push:
     tags:
       - '*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., 2.0.0)'
+        required: true
+        default: '2.0.0'
 
 jobs:
   build:
@@ -68,22 +74,34 @@ jobs:
           toolchain: nightly
           profile: minimal
 
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v1.0.3
+        with:
+          vs-prerelease: true
+
       - name: Build
         shell: pwsh
         run: |
           .\build.ps1 -Configuration Release -OutputPath release
 
-      - name: Package
+      - name: Package 7z
         shell: pwsh
         run: |
-          7z a -mx9 Netch.7z release
-          7z rn Netch.7z release Netch
+          7z a -mx9 Hatch.7z release
+          7z rn Hatch.7z release Hatch
 
+      - name: Package Zip
+        shell: pwsh
+        run: |
+          Compress-Archive -Path release -DestinationPath Hatch.zip -CompressionLevel Optimal
+          
       - name: Checksum
         shell: pwsh
         run: |
-          $hash=(Get-FileHash Netch.7z -Algorithm SHA256).Hash.ToLower()
-          echo "NETCH_SHA256=$hash" | Out-File -Append -Encoding UTF8 -FilePath $Env:GITHUB_ENV
+          $hash7z=(Get-FileHash Hatch.7z -Algorithm SHA256).Hash.ToLower()
+          $hashZip=(Get-FileHash Hatch.zip -Algorithm SHA256).Hash.ToLower()
+          echo "HATCH_7Z_SHA256=$hash7z" | Out-File -Append -Encoding UTF8 -FilePath $Env:GITHUB_ENV
+          echo "HATCH_ZIP_SHA256=$hashZip" | Out-File -Append -Encoding UTF8 -FilePath $Env:GITHUB_ENV
 
       - name: Release
         uses: softprops/action-gh-release@v1
@@ -93,16 +111,38 @@ jobs:
           prerelease: ${{ contains(github.ref, '-') }}
           draft: false
           files: |
-            Netch.7z
+            Hatch.7z
+            Hatch.zip
           body: |
-            [![](https://img.shields.io/badge/Telegram-Channel-blue)](https://t.me/netch_channel) [![](https://img.shields.io/badge/Telegram-Group-green)](https://t.me/netch_group)
-            ## Changelogs
-            * This is an automated deployment of GitHub Actions, the change log should be updated manually soon
+            # Hatch v${{ github.ref_name }}
             
-            ## 更新日志
-            * 这是 GitHub Actions 自动化部署，更新日志应该很快会手动更新
-
-            ## 校验和
+            基于 Netch 1.9.7 继续开发的分支版本 | A fork based on Netch 1.9.7
+            
+            ## 📦 下载 | Downloads
+            
+            - **Hatch.7z** - 7-Zip 压缩包 (推荐，体积更小)
+            - **Hatch.zip** - ZIP 压缩包 (兼容性更好)
+            
+            ## ✨ 更新日志 | Changelogs
+            
+            * 这是 GitHub Actions 自动化部署
+            * 基于 Netch 1.9.7 项目继续开发
+            * 集成 Xray-core 最新版本
+            * 优化构建体积 (减少 56.8%)
+            * 改进 UI 界面和延迟显示
+            * Hysteria2 协议优化
+            
+            ## 🔐 校验和 | Checksums
+            
             | 文件名 | SHA256 |
             | :- | :- |
-            | Netch.7z | ${{ env.Netch_SHA256 }} |
+            | Hatch.7z | ${{ env.HATCH_7Z_SHA256 }} |
+            | Hatch.zip | ${{ env.HATCH_ZIP_SHA256 }} |
+            
+            ## 📖 使用说明 | Documentation
+            
+            请查看 [README.md](https://github.com/OffroadOps/Hatch/blob/main/README.md) 获取详细使用说明。
+            
+            ---
+            
+            **注意**: 本工具仅供学习和研究使用，使用者需遵守当地法律法规。
