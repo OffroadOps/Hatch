@@ -1,93 +1,120 @@
 # Hatch
 
-A Windows game accelerator based on Netch, using Xray-core as the proxy engine.
-
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Windows-blue.svg)](https://github.com/OffroadOps/Hatch)
+A lightweight and powerful network proxy tool for Windows, forked from Netch with Xray-core integration.
 
 ## Features
 
-- Game-specific process proxy mode
-- Multiple proxy protocols support (VLESS, VMess, Shadowsocks, Trojan, etc.)
-- **VLESS + Reality protocol support** (New in 2.0.0)
-- **Xray-core v26.1.13** as proxy engine
-- TUN/TAP mode for full system proxy
-- Subscription support
-- Multi-language support (English, Chinese, Japanese)
+- 🚀 **High Performance**: Built with .NET 10.0 and optimized for speed
+- 🔒 **Multiple Protocols**: Support for Hysteria2, Shadowsocks, VMess, VLESS, Trojan, WireGuard, and more
+- 🎯 **Process Mode**: Route specific applications through proxy
+- 🌐 **TUN/TAP Mode**: System-wide proxy with advanced routing
+- 📊 **Real-time Monitoring**: Live bandwidth and latency display
+- 🌍 **Multi-language**: Support for English, Chinese (Simplified & Traditional), and Japanese
+- ⚡ **Optimized Build**: 56.8% smaller than standard builds while maintaining full functionality
 
-## What's New in 2.0.0
+## System Requirements
 
-### Major Changes
-- Upgraded proxy engine from SagerNet/v2ray-core to **Xray-core**
-- Added **VLESS Reality protocol** support
-- Added **xtls-rprx-vision** flow support
-- Simplified UI (removed Help menu and version display)
-- Updated to .NET 8
+- Windows 7 or later (x64)
+- .NET 10.0 Runtime (for framework-dependent version) or use the self-contained version
 
-### Reality Protocol Support
-Now you can use VLESS servers with Reality protocol. The following parameters are supported:
-- `pbk` - Reality Public Key
-- `sid` - Reality Short ID  
-- `fp` - Fingerprint (chrome, firefox, safari, etc.)
-- `spx` - SpiderX
-- `flow` - Flow control (xtls-rprx-vision)
+## Installation
 
-## Requirements
-
-- Windows 10/11 64-bit
-- [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0)
-- Administrator privileges (for driver installation)
-
-## Usage
-
-1. Download the latest release
+1. Download the latest release from [Releases](https://github.com/OffroadOps/Hatch/releases)
 2. Extract all files to a folder
-3. Run `Netch.exe` as Administrator
-4. Add your proxy server (via subscription or manual input)
-5. Select a mode and click Start
+3. Run `Hatch.exe`
 
-## Supported Protocols
+## Quick Start
 
-- VLESS (with Reality, XTLS, TLS)
-- VMess
-- Shadowsocks
-- ShadowsocksR
-- Trojan
-- Socks5
-- WireGuard
+1. **Add Server**: Click the server dropdown → Add server → Select protocol
+2. **Select Mode**: Choose a mode from the mode dropdown (e.g., "Bypass LAN")
+3. **Start**: Click the "Start" button to connect
 
-## Modes
+## Key Improvements
 
-- **Process Mode**: Proxy specific game/application processes
-- **TUN Mode**: System-wide proxy using TUN adapter
-- **Global Mode**: Route all traffic through proxy
+### UI Enhancements
+- Streamlined interface with hidden configuration sections
+- Color-coded latency display (Green <80ms, Orange 80-200ms, Red >200ms)
+- Real-time speed test with IP geolocation
+- Automatic delay testing on startup
+
+### Protocol Support
+- **Hysteria2**: Optimized with ICMP ping for accurate latency measurement
+- **Xray-core**: Latest version integrated for enhanced performance
+
+### Build Optimization
+- Single-file deployment with internal compression
+- 56.8% size reduction (from 166.55 MB to 72 MB)
+- Full multi-language support maintained
+- No antivirus false positives
+
+## Configuration
+
+### Server Configuration
+Servers are stored in `data/servers.json`. You can:
+- Import from clipboard (subscription links supported)
+- Add manually through the UI
+- Test latency with one click
+
+### Mode Configuration
+Modes define routing rules and are stored in the `mode/` folder:
+- **Process Mode**: Route specific applications
+- **TUN/TAP Mode**: System-wide routing with custom rules
+- **Bypass Mode**: Exclude local and China IPs
 
 ## Building from Source
 
-### Requirements
-- .NET 8 SDK
-- Visual Studio 2022 (optional)
+### Prerequisites
+- .NET 10.0 SDK
+- Visual Studio 2022 or later (optional)
 
-### Build
+### Build Commands
+
 ```powershell
-# Clone the repository
-git clone https://github.com/OffroadOps/Hatch.git
-cd Hatch
+# Framework-dependent build (requires .NET runtime)
+dotnet build -c Release
 
-# Build
-dotnet publish -c Release -r win-x64 -p:Platform=x64 -p:SelfContained=true -p:PublishSingleFile=true Netch/Netch.csproj
+# Self-contained optimized build
+cd Hatch-main
+.\publish-optimized.ps1
 ```
 
-## Credits
+The optimized build applies:
+- ✅ PublishSingleFile - Single executable
+- ✅ EnableCompressionInSingleFile - Internal compression
+- ✅ Debug symbols removed
+- ❌ PublishTrimmed - Not supported for Windows Forms
 
-- [Netch](https://github.com/NetchX/Netch) - Original project
-- [Xray-core](https://github.com/XTLS/Xray-core) - Proxy engine
-- [WinDivert](https://github.com/basil00/WinDivert) - Network packet capture
+## Project Structure
+
+```
+Hatch-main/
+├── Netch/              # Main application source
+├── Redirector/         # Network redirector (C++)
+├── RouteHelper/        # Routing utilities
+├── Storage/            # Default configurations
+├── Other/              # Additional tools (aiodns, pcap2socks, xray)
+└── publish-trimmed/    # Optimized build output
+```
 
 ## License
 
-MIT License - See [LICENSE](LICENSE) for details.
+GPL-3.0 License - see [LICENSE](LICENSE) for details
+
+## Credits
+
+- Original project: [Netch](https://github.com/netchx/netch)
+- Xray-core: [Xray-project](https://github.com/XTLS/Xray-core)
+- Hysteria2: [Hysteria](https://github.com/apernet/hysteria)
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit issues and pull requests.
 
 ## Disclaimer
 
-This software is for educational and research purposes only. Users are responsible for complying with local laws and regulations.
+This tool is for educational and research purposes only. Users are responsible for complying with local laws and regulations.
+
+---
+
+**Version**: 2.0.0  
+**Copyright**: © 2026 OffroadOps

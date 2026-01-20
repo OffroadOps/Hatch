@@ -1,3 +1,0 @@
-# ForzaHorizon 4
-ForzaHorizon4.exe
-XboxApp.exe

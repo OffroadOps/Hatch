@@ -1,2 +1,0 @@
-# Cube 2: Sauerbraten
-sauerbraten.exe

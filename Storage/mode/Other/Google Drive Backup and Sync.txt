@@ -1,3 +1,0 @@
-# Google Drive Backup and Sync, 0
-googledrivesync.exe
-nativeproxy.exe

@@ -1,6 +1,0 @@
-# Multi Theft Auto (MTA), 0
-gta_sa.exe
-CEFLauncher.exe
-wow64_helper.exe
-MTA Server.exe
-Multi Theft Auto.exe

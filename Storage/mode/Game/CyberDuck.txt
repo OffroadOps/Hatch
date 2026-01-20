@@ -1,2 +1,0 @@
-# CyberDuck, 0
-Cyberduck.exe
