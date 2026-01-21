@@ -19,7 +19,11 @@ param (
 
 	[Parameter()]
 	[bool]
-	$PublishReadyToRun = $False
+	$PublishReadyToRun = $False,
+
+	[Parameter()]
+	[bool]
+	$SkipCppBuild = $False
 )
 
 Push-Location (Split-Path $MyInvocation.MyCommand.Path -Parent)
@@ -105,43 +109,62 @@ if ( -Not ( Test-Path ".\Netch\bin\$Configuration" ) ) {
 }
 cp -Force ".\Netch\bin\$Configuration\Netch.exe" $OutputPath
 
-if ( -Not ( Test-Path ".\Redirector\bin\$Configuration" ) ) {
-	Write-Host
-	Write-Host 'Building Redirector'
+if ( -Not $SkipCppBuild ) {
+	if ( -Not ( Test-Path ".\Redirector\bin\$Configuration" ) ) {
+		Write-Host
+		Write-Host 'Building Redirector'
 
-	msbuild `
-		-property:Configuration=$Configuration `
-		-property:Platform=x64 `
-		-verbosity:minimal `
-		'.\Redirector\Redirector.vcxproj'
-	if ( -Not $? ) { 
-		Write-Error "Redirector build failed with exit code $lastExitCode"
-		exit $lastExitCode 
+		msbuild `
+			-property:Configuration=$Configuration `
+			-property:Platform=x64 `
+			-verbosity:minimal `
+			'.\Redirector\Redirector.vcxproj'
+		if ( -Not $? ) { 
+			Write-Error "Redirector build failed with exit code $lastExitCode"
+			exit $lastExitCode 
+		}
 	}
-}
-if (Test-Path ".\Redirector\bin\$Configuration\nfapi.dll") {
-	cp -Force ".\Redirector\bin\$Configuration\nfapi.dll" "$OutputPath\bin"
-}
-if (Test-Path ".\Redirector\bin\$Configuration\Redirector.bin") {
-	cp -Force ".\Redirector\bin\$Configuration\Redirector.bin" "$OutputPath\bin"
-}
-
-if ( -Not ( Test-Path ".\RouteHelper\bin\$Configuration" ) ) {
-	Write-Host
-	Write-Host 'Building RouteHelper'
-
-	msbuild `
-		-property:Configuration=$Configuration `
-		-property:Platform=x64 `
-		-verbosity:minimal `
-		'.\RouteHelper\RouteHelper.vcxproj'
-	if ( -Not $? ) { 
-		Write-Error "RouteHelper build failed with exit code $lastExitCode"
-		exit $lastExitCode 
+	if (Test-Path ".\Redirector\bin\$Configuration\nfapi.dll") {
+		cp -Force ".\Redirector\bin\$Configuration\nfapi.dll" "$OutputPath\bin"
 	}
-}
-if (Test-Path ".\RouteHelper\bin\$Configuration\RouteHelper.bin") {
-	cp -Force ".\RouteHelper\bin\$Configuration\RouteHelper.bin" "$OutputPath\bin"
+	if (Test-Path ".\Redirector\bin\$Configuration\Redirector.bin") {
+		cp -Force ".\Redirector\bin\$Configuration\Redirector.bin" "$OutputPath\bin"
+	}
+
+	if ( -Not ( Test-Path ".\RouteHelper\bin\$Configuration" ) ) {
+		Write-Host
+		Write-Host 'Building RouteHelper'
+
+		msbuild `
+			-property:Configuration=$Configuration `
+			-property:Platform=x64 `
+			-verbosity:minimal `
+			'.\RouteHelper\RouteHelper.vcxproj'
+		if ( -Not $? ) { 
+			Write-Error "RouteHelper build failed with exit code $lastExitCode"
+			exit $lastExitCode 
+		}
+	}
+	if (Test-Path ".\RouteHelper\bin\$Configuration\RouteHelper.bin") {
+		cp -Force ".\RouteHelper\bin\$Configuration\RouteHelper.bin" "$OutputPath\bin"
+	}
+} else {
+	Write-Host "Skipping C++ projects build (SkipCppBuild=True)"
+	Write-Host "Copying prebuilt binaries if available..."
+	
+	# Copy from static/prebuilt directories if they exist
+	if (Test-Path ".\Redirector\static\nfapi.dll") {
+		cp -Force ".\Redirector\static\nfapi.dll" "$OutputPath\bin"
+		Write-Host "✓ Copied nfapi.dll from static"
+	}
+	if (Test-Path ".\Redirector\bin\Release\Redirector.bin") {
+		cp -Force ".\Redirector\bin\Release\Redirector.bin" "$OutputPath\bin"
+		Write-Host "✓ Copied Redirector.bin"
+	}
+	if (Test-Path ".\RouteHelper\bin\Release\RouteHelper.bin") {
+		cp -Force ".\RouteHelper\bin\Release\RouteHelper.bin" "$OutputPath\bin"
+		Write-Host "✓ Copied RouteHelper.bin"
+	}
 }
 
 if ( $Configuration.Equals('Release') ) {
