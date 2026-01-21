@@ -43,13 +43,31 @@ cp -Recurse -Force '..\Storage\README.md' 'bin'  | Out-Null
 Pop-Location
 
 if ( -Not ( Test-Path '.\Other\release' ) ) {
-	.\Other\build.ps1
-	if ( -Not $? ) {
-		exit $lastExitCode
-	}
+	Write-Host "Setting up Other components..."
+	New-Item -ItemType Directory -Path '.\Other\release' -Force | Out-Null
+	
+	# Download Xray
+	Write-Host "Downloading Xray..."
+	$xrayUrl = "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-windows-64.zip"
+	$xrayZip = Join-Path $env:TEMP "xray.zip"
+	$xrayExtract = Join-Path $env:TEMP "xray-extract"
+	Invoke-WebRequest -Uri $xrayUrl -OutFile $xrayZip -UseBasicParsing
+	Expand-Archive -Path $xrayZip -DestinationPath $xrayExtract -Force
+	Copy-Item -Path (Join-Path $xrayExtract "xray.exe") -Destination '.\Other\release\xray.exe' -Force
+	
+	# Download pcap2socks
+	Write-Host "Downloading pcap2socks..."
+	$pcap2socksUrl = "https://github.com/zhxie/pcap2socks/releases/latest/download/pcap2socks-windows.zip"
+	$pcap2socksZip = Join-Path $env:TEMP "pcap2socks.zip"
+	$pcap2socksExtract = Join-Path $env:TEMP "pcap2socks-extract"
+	Invoke-WebRequest -Uri $pcap2socksUrl -OutFile $pcap2socksZip -UseBasicParsing
+	Expand-Archive -Path $pcap2socksZip -DestinationPath $pcap2socksExtract -Force
+	Copy-Item -Path (Join-Path $pcap2socksExtract "pcap2socks.exe") -Destination '.\Other\release\pcap2socks.exe' -Force
+	
+	Write-Host "Other components ready"
 }
-cp -Force '.\Other\release\*.bin' "$OutputPath\bin"
-cp -Force '.\Other\release\*.dll' "$OutputPath\bin"
+cp -Force '.\Other\release\*.bin' "$OutputPath\bin" -ErrorAction SilentlyContinue
+cp -Force '.\Other\release\*.dll' "$OutputPath\bin" -ErrorAction SilentlyContinue
 cp -Force '.\Other\release\*.exe' "$OutputPath\bin"
 
 if ( -Not ( Test-Path ".\Netch\bin\$Configuration" ) ) {
