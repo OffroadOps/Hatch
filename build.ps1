@@ -61,15 +61,9 @@ if ( -Not ( Test-Path '.\Other\release' ) ) {
 		Copy-Item -Path (Join-Path $xrayExtract "xray.exe") -Destination '.\Other\release\xray.exe' -Force
 		Write-Host "✓ Xray downloaded"
 		
-		# Download pcap2socks
-		Write-Host "Downloading pcap2socks..."
-		$pcap2socksUrl = "https://github.com/zhxie/pcap2socks/releases/latest/download/pcap2socks-windows.zip"
-		$pcap2socksZip = Join-Path $env:TEMP "pcap2socks.zip"
-		$pcap2socksExtract = Join-Path $env:TEMP "pcap2socks-extract"
-		Invoke-WebRequest -Uri $pcap2socksUrl -OutFile $pcap2socksZip -UseBasicParsing
-		Expand-Archive -Path $pcap2socksZip -DestinationPath $pcap2socksExtract -Force
-		Copy-Item -Path (Join-Path $pcap2socksExtract "pcap2socks.exe") -Destination '.\Other\release\pcap2socks.exe' -Force
-		Write-Host "✓ pcap2socks downloaded"
+		# pcap2socks - skip download as it doesn't have prebuilt Windows binaries
+		# Users need to build it themselves or the app will prompt to install dependencies
+		Write-Host "Note: pcap2socks needs to be built separately or installed via dependencies"
 		
 		Write-Host "✓ Other components ready"
 	} catch {
