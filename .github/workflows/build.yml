@@ -88,6 +88,12 @@ jobs:
           Write-Host ".NET version:"
           dotnet --version
           
+          Write-Host "`nMSBuild version:"
+          msbuild -version
+          
+          Write-Host "`nVisual Studio installations:"
+          vswhere -all -products * -property installationPath
+          
           Write-Host "`nRunning build.ps1..."
           .\build.ps1 -Configuration Release -OutputPath release
           
