@@ -46,28 +46,43 @@ if ( -Not ( Test-Path '.\Other\release' ) ) {
 	Write-Host "Setting up Other components..."
 	New-Item -ItemType Directory -Path '.\Other\release' -Force | Out-Null
 	
-	# Download Xray
-	Write-Host "Downloading Xray..."
-	$xrayUrl = "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-windows-64.zip"
-	$xrayZip = Join-Path $env:TEMP "xray.zip"
-	$xrayExtract = Join-Path $env:TEMP "xray-extract"
-	Invoke-WebRequest -Uri $xrayUrl -OutFile $xrayZip -UseBasicParsing
-	Expand-Archive -Path $xrayZip -DestinationPath $xrayExtract -Force
-	Copy-Item -Path (Join-Path $xrayExtract "xray.exe") -Destination '.\Other\release\xray.exe' -Force
-	
-	# Download pcap2socks
-	Write-Host "Downloading pcap2socks..."
-	$pcap2socksUrl = "https://github.com/zhxie/pcap2socks/releases/latest/download/pcap2socks-windows.zip"
-	$pcap2socksZip = Join-Path $env:TEMP "pcap2socks.zip"
-	$pcap2socksExtract = Join-Path $env:TEMP "pcap2socks-extract"
-	Invoke-WebRequest -Uri $pcap2socksUrl -OutFile $pcap2socksZip -UseBasicParsing
-	Expand-Archive -Path $pcap2socksZip -DestinationPath $pcap2socksExtract -Force
-	Copy-Item -Path (Join-Path $pcap2socksExtract "pcap2socks.exe") -Destination '.\Other\release\pcap2socks.exe' -Force
-	
-	Write-Host "Other components ready"
+	try {
+		# Download Xray
+		Write-Host "Downloading Xray..."
+		$xrayUrl = "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-windows-64.zip"
+		$xrayZip = Join-Path $env:TEMP "xray.zip"
+		$xrayExtract = Join-Path $env:TEMP "xray-extract"
+		Invoke-WebRequest -Uri $xrayUrl -OutFile $xrayZip -UseBasicParsing
+		Expand-Archive -Path $xrayZip -DestinationPath $xrayExtract -Force
+		Copy-Item -Path (Join-Path $xrayExtract "xray.exe") -Destination '.\Other\release\xray.exe' -Force
+		Write-Host "✓ Xray downloaded"
+		
+		# Download pcap2socks
+		Write-Host "Downloading pcap2socks..."
+		$pcap2socksUrl = "https://github.com/zhxie/pcap2socks/releases/latest/download/pcap2socks-windows.zip"
+		$pcap2socksZip = Join-Path $env:TEMP "pcap2socks.zip"
+		$pcap2socksExtract = Join-Path $env:TEMP "pcap2socks-extract"
+		Invoke-WebRequest -Uri $pcap2socksUrl -OutFile $pcap2socksZip -UseBasicParsing
+		Expand-Archive -Path $pcap2socksZip -DestinationPath $pcap2socksExtract -Force
+		Copy-Item -Path (Join-Path $pcap2socksExtract "pcap2socks.exe") -Destination '.\Other\release\pcap2socks.exe' -Force
+		Write-Host "✓ pcap2socks downloaded"
+		
+		Write-Host "✓ Other components ready"
+	} catch {
+		Write-Error "Failed to download components: $_"
+		Write-Host "Falling back to building from source..."
+		.\Other\build.ps1
+		if ( -Not $? ) {
+			exit $lastExitCode
+		}
+	}
 }
-cp -Force '.\Other\release\*.bin' "$OutputPath\bin" -ErrorAction SilentlyContinue
-cp -Force '.\Other\release\*.dll' "$OutputPath\bin" -ErrorAction SilentlyContinue
+if (Test-Path '.\Other\release\*.bin') {
+	cp -Force '.\Other\release\*.bin' "$OutputPath\bin"
+}
+if (Test-Path '.\Other\release\*.dll') {
+	cp -Force '.\Other\release\*.dll' "$OutputPath\bin"
+}
 cp -Force '.\Other\release\*.exe' "$OutputPath\bin"
 
 if ( -Not ( Test-Path ".\Netch\bin\$Configuration" ) ) {
@@ -97,11 +112,19 @@ if ( -Not ( Test-Path ".\Redirector\bin\$Configuration" ) ) {
 	msbuild `
 		-property:Configuration=$Configuration `
 		-property:Platform=x64 `
+		-verbosity:minimal `
 		'.\Redirector\Redirector.vcxproj'
-	if ( -Not $? ) { exit $lastExitCode }
+	if ( -Not $? ) { 
+		Write-Error "Redirector build failed with exit code $lastExitCode"
+		exit $lastExitCode 
+	}
 }
-cp -Force ".\Redirector\bin\$Configuration\nfapi.dll"      "$OutputPath\bin"
-cp -Force ".\Redirector\bin\$Configuration\Redirector.bin" "$OutputPath\bin"
+if (Test-Path ".\Redirector\bin\$Configuration\nfapi.dll") {
+	cp -Force ".\Redirector\bin\$Configuration\nfapi.dll" "$OutputPath\bin"
+}
+if (Test-Path ".\Redirector\bin\$Configuration\Redirector.bin") {
+	cp -Force ".\Redirector\bin\$Configuration\Redirector.bin" "$OutputPath\bin"
+}
 
 if ( -Not ( Test-Path ".\RouteHelper\bin\$Configuration" ) ) {
 	Write-Host
@@ -110,10 +133,16 @@ if ( -Not ( Test-Path ".\RouteHelper\bin\$Configuration" ) ) {
 	msbuild `
 		-property:Configuration=$Configuration `
 		-property:Platform=x64 `
+		-verbosity:minimal `
 		'.\RouteHelper\RouteHelper.vcxproj'
-	if ( -Not $? ) { exit $lastExitCode }
+	if ( -Not $? ) { 
+		Write-Error "RouteHelper build failed with exit code $lastExitCode"
+		exit $lastExitCode 
+	}
 }
-cp -Force ".\RouteHelper\bin\$Configuration\RouteHelper.bin" "$OutputPath\bin"
+if (Test-Path ".\RouteHelper\bin\$Configuration\RouteHelper.bin") {
+	cp -Force ".\RouteHelper\bin\$Configuration\RouteHelper.bin" "$OutputPath\bin"
+}
 
 if ( $Configuration.Equals('Release') ) {
 	rm -Force "$OutputPath\*.pdb"
