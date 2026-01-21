@@ -78,7 +78,22 @@ jobs:
       - name: Build
         shell: pwsh
         run: |
+          Write-Host "Starting build process..."
+          Write-Host "Current directory: $(Get-Location)"
+          Write-Host "Listing files:"
+          Get-ChildItem -Name
+          
+          Write-Host "`nRunning build.ps1..."
           .\build.ps1 -Configuration Release -OutputPath release
+          
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "Build failed with exit code $LASTEXITCODE"
+            exit $LASTEXITCODE
+          }
+          
+          Write-Host "`nBuild completed successfully!"
+          Write-Host "Release folder contents:"
+          Get-ChildItem -Path release -Recurse -Name
 
       - name: Upload
         uses: actions/upload-artifact@v4

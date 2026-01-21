@@ -80,18 +80,40 @@ jobs:
       - name: Build
         shell: pwsh
         run: |
+          Write-Host "Starting build process..."
+          Write-Host "Current directory: $(Get-Location)"
+          
+          Write-Host "`nRunning build.ps1..."
           .\build.ps1 -Configuration Release -OutputPath release
+          
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "Build failed with exit code $LASTEXITCODE"
+            exit $LASTEXITCODE
+          }
+          
+          Write-Host "`nBuild completed successfully!"
+          Write-Host "Release folder contents:"
+          Get-ChildItem -Path release -Recurse -Name
 
       - name: Package 7z
         shell: pwsh
         run: |
+          Write-Host "Creating 7z archive..."
           7z a -mx9 Hatch.7z release
           7z rn Hatch.7z release Hatch
+          Write-Host "7z archive created: $(Get-Item Hatch.7z | Select-Object -ExpandProperty Length) bytes"
 
       - name: Package Zip
         shell: pwsh
         run: |
-          Compress-Archive -Path release -DestinationPath Hatch.zip -CompressionLevel Optimal
+          Write-Host "Creating zip archive..."
+          Compress-Archive -Path release\* -DestinationPath Hatch-temp.zip -CompressionLevel Optimal
+          
+          # Create proper structure with Hatch folder
+          New-Item -ItemType Directory -Path "Hatch" -Force | Out-Null
+          Move-Item -Path release\* -Destination Hatch\ -Force
+          Compress-Archive -Path Hatch -DestinationPath Hatch.zip -CompressionLevel Optimal
+          Write-Host "Zip archive created: $(Get-Item Hatch.zip | Select-Object -ExpandProperty Length) bytes"
           
       - name: Checksum
         shell: pwsh
