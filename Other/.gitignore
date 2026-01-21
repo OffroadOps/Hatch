@@ -1,6 +1,1 @@
-# Ignore source directories after build
-/aiodns/src
-/pcap2socks/src
-/v2ray-sn/src
-/wintun/src
-
+/release
