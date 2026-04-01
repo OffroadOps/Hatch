@@ -75,7 +75,7 @@ jobs:
           profile: minimal
 
       - name: Setup MSBuild
-        uses: microsoft/setup-msbuild@v2.0.0
+        uses: microsoft/setup-msbuild@v3.0.0
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
