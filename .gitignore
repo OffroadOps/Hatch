@@ -7,3 +7,58 @@
 /publish-optimized
 /publish-trimmed
 /Hatch-main
+/artifacts/
+/.dotnet/
+/.build-cache/
+
+# Build outputs
+**/bin/
+**/obj/
+
+# User-specific files
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Build results
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+
+# Visual Studio cache/options
+.vs/
+.vscode/
+
+# NuGet
+*.nupkg
+*.snupkg
+**/packages/*
+!**/packages/build/
+
+# Test results
+[Tt]est[Rr]esult*/
+[Bb]uild[Ll]og.*
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+*.cache
+
+# Build/debug output files
+build_error.txt
+build_output.txt
+build_verify.txt
+crash_output.txt
+
+# Build output directories
+/out/
+/Release/

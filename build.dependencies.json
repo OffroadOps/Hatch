@@ -1,0 +1,36 @@
+{
+  "xray": {
+    "version": "26.3.27",
+    "url": "https://github.com/XTLS/Xray-core/releases/download/v26.3.27/Xray-windows-64.zip",
+    "sha256": "d004c39288ce9ada487c6f398c7c545f7d749e44bdfdd59dbc9f865afba4e1ad",
+    "archiveEntry": "xray.exe",
+    "destination": "bin/xray.exe"
+  },
+  "singBox": {
+    "version": "1.13.14",
+    "url": "https://github.com/SagerNet/sing-box/releases/download/v1.13.14/sing-box-1.13.14-windows-amd64.zip",
+    "sha256": "f580782c6dd10f7691c66cea1d7c421813c5fbf7e305d1ee7ce0c3a40d196341",
+    "archiveEntry": "sing-box.exe",
+    "destination": "bin/sing-box.exe"
+  },
+  "pcap2socks": {
+    "version": "0.6.2",
+    "url": "https://github.com/zhxie/pcap2socks/releases/download/v0.6.2/pcap2socks-v0.6.2-windows-amd64.zip",
+    "sha256": "59b3a2e5054c5a0252f3ac5f10b2862aa53a91e65b2e56e76d5706838d291953",
+    "archiveEntry": "pcap2socks.exe",
+    "destination": "bin/pcap2socks.exe"
+  },
+  "wintun": {
+    "version": "0.13",
+    "url": "https://www.wintun.net/builds/wintun-0.13.zip",
+    "sha256": "34afe7d0de1fdb781af3defc0a75fd8c97daa756279b42dd6be6a1bd8ccdc7f0",
+    "archivePath": "wintun/bin/amd64/wintun.dll",
+    "destination": "bin/wintun.dll"
+  },
+  "geoLite2Country": {
+    "version": "Loyalsoldier/geoip@0a1d3413323d75d8ba924ad8dcb1f0b42f6ae649",
+    "url": "https://raw.githubusercontent.com/Loyalsoldier/geoip/0a1d3413323d75d8ba924ad8dcb1f0b42f6ae649/Country.mmdb",
+    "sha256": "3256b2ba2d8f75778fab6fe4e0e1c77ccffbd8774aab8e577251f3803ad95b49",
+    "destination": "bin/GeoLite2-Country.mmdb"
+  }
+}

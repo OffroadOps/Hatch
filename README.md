@@ -14,7 +14,7 @@ This project is a **continuation and enhancement** of [Netch 1.9.7](https://gith
 
 ### Features
 
-- 🚀 **High Performance**: Built with .NET 10.0 and optimized for speed
+- 🚀 **High Performance**: Built with .NET 8.0 and optimized for speed
 - 🔒 **Multiple Protocols**: Support for Hysteria2, Shadowsocks, VMess, VLESS, Trojan, WireGuard, and more
 - 🎯 **Process Mode**: Route specific applications through proxy
 - 🌐 **TUN/TAP Mode**: System-wide proxy with advanced routing
@@ -24,8 +24,8 @@ This project is a **continuation and enhancement** of [Netch 1.9.7](https://gith
 
 ### System Requirements
 
-- Windows 7 or later (x64)
-- .NET 10.0 Runtime (for framework-dependent version) or use the self-contained version
+- Windows 10 version 1607 or later (x64)
+- .NET 8.0 Runtime (for framework-dependent version) or use the self-contained version
 
 ### Installation
 
@@ -41,6 +41,14 @@ This project is a **continuation and enhancement** of [Netch 1.9.7](https://gith
 
 ### Key Improvements
 
+#### Version 2.0.0 Updates
+- **About Dialog**: New menu with version information and update features
+  - Display Hatch, Xray-core, and sing-box versions
+  - One-click software and core updates
+  - Tribute to Netch project
+- **Core Management**: Automated download scripts for sing-box with proxy support
+- **Enhanced Stability**: Improved core file detection and management
+
 #### UI Enhancements
 - Streamlined interface with hidden configuration sections
 - Color-coded latency display (Green <80ms, Orange 80-200ms, Red >200ms)
@@ -55,7 +63,7 @@ This project is a **continuation and enhancement** of [Netch 1.9.7](https://gith
 - Single-file deployment with internal compression
 - 56.8% size reduction (from 166.55 MB to 72 MB)
 - Full multi-language support maintained
-- No antivirus false positives
+- Release binaries are currently unsigned; Windows SmartScreen or antivirus software may show a warning. Verify the published SHA256 before running.
 
 ### Configuration
 
@@ -74,9 +82,10 @@ Modes define routing rules and are stored in the `mode/` folder:
 ### Building from Source
 
 #### Prerequisites
-- .NET 10.0 SDK
-- Visual Studio 2022 or later (optional)
-- MSBuild for C++ components
+- .NET SDK 8.0.100 (the version pinned by `global.json`)
+- Visual Studio 2022 Build Tools with **Desktop development with C++**
+- Go and a MinGW-w64 C compiler (for `aiodns.bin`)
+- Inno Setup 6 (omit with `-SkipInstaller` for archive-only builds)
 
 #### Build Commands
 
@@ -85,11 +94,17 @@ Modes define routing rules and are stored in the `mode/` folder:
 .\build.ps1 -Configuration Release -OutputPath release
 
 # The build will automatically:
-# - Compile Netch (C# .NET application)
+# - Run the test suite and compile Hatch (C# .NET application)
 # - Compile Redirector (C++ network redirector)
 # - Compile RouteHelper (C++ routing utilities)
-# - Download dependencies (aiodns, xray, etc.)
-# - Package everything into the release folder
+# - Build aiodns and download version-pinned dependencies with SHA256 verification
+# - Package Hatch.zip and HatchSetup.exe into the release folder
+```
+
+For a local archive-only verification using the audited native binaries in `artifacts/`:
+
+```powershell
+.\build.ps1 -Configuration Release -OutputPath release -SkipNativeBuild -SkipInstaller
 ```
 
 ### License
@@ -122,7 +137,7 @@ This tool is for educational and research purposes only. Users are responsible f
 
 ### 功能特性
 
-- 🚀 **高性能**: 基于 .NET 10.0 构建，性能优化
+- 🚀 **高性能**: 基于 .NET 8.0 构建，性能优化
 - 🔒 **多协议支持**: 支持 Hysteria2、Shadowsocks、VMess、VLESS、Trojan、WireGuard 等
 - 🎯 **进程模式**: 为特定应用程序设置代理
 - 🌐 **TUN/TAP 模式**: 系统级代理，支持高级路由规则
@@ -132,8 +147,8 @@ This tool is for educational and research purposes only. Users are responsible f
 
 ### 系统要求
 
-- Windows 7 或更高版本 (x64)
-- .NET 10.0 运行时（框架依赖版本）或使用独立版本
+- Windows 10 1607 或更高版本 (x64)
+- .NET 8.0 运行时（框架依赖版本）或使用独立版本
 
 ### 安装说明
 
@@ -149,6 +164,14 @@ This tool is for educational and research purposes only. Users are responsible f
 
 ### 主要改进
 
+#### 2.0.0 版本更新
+- **关于对话框**: 新增菜单，显示版本信息和更新功能
+  - 显示 Hatch、Xray-core 和 sing-box 版本
+  - 一键更新软件和核心文件
+  - 致敬 Netch 项目
+- **核心管理**: sing-box 自动下载脚本，支持代理
+- **稳定性增强**: 改进核心文件检测和管理
+
 #### UI 增强
 - 简化界面，隐藏配置部分
 - 延迟颜色编码显示（绿色 <80ms，橙色 80-200ms，红色 >200ms）
@@ -163,7 +186,7 @@ This tool is for educational and research purposes only. Users are responsible f
 - 单文件部署，内部压缩
 - 体积减少 56.8%（从 166.55 MB 降至 72 MB）
 - 保持完整的多语言支持
-- 无杀毒软件误报
+- 当前发布二进制尚未签名；Windows SmartScreen 或杀毒软件可能提示风险。运行前请核对 Release 中公布的 SHA256。
 
 ### 配置说明
 
@@ -182,9 +205,10 @@ This tool is for educational and research purposes only. Users are responsible f
 ### 从源码构建
 
 #### 前置要求
-- .NET 10.0 SDK
-- Visual Studio 2022 或更高版本（可选）
-- MSBuild（用于 C++ 组件）
+- .NET SDK 8.0.100（由 `global.json` 固定）
+- Visual Studio 2022 Build Tools，并安装“使用 C++ 的桌面开发”工作负载
+- Go 和 MinGW-w64 C 编译器（用于构建 `aiodns.bin`）
+- Inno Setup 6（仅构建压缩包时可传 `-SkipInstaller`）
 
 #### 构建命令
 
@@ -193,11 +217,17 @@ This tool is for educational and research purposes only. Users are responsible f
 .\build.ps1 -Configuration Release -OutputPath release
 
 # 构建将自动：
-# - 编译 Netch（C# .NET 应用程序）
+# - 运行测试并编译 Hatch（C# .NET 应用程序）
 # - 编译 Redirector（C++ 网络重定向器）
 # - 编译 RouteHelper（C++ 路由工具）
-# - 下载依赖项（aiodns、xray 等）
-# - 将所有内容打包到 release 文件夹
+# - 构建 aiodns，并下载固定版本且校验 SHA256 的依赖项
+# - 在 release 文件夹生成 Hatch.zip 和 HatchSetup.exe
+```
+
+本机仅验证压缩包、复用 `artifacts/` 中已审计原生文件时：
+
+```powershell
+.\build.ps1 -Configuration Release -OutputPath release -SkipNativeBuild -SkipInstaller
 ```
 
 ### 许可证
@@ -220,6 +250,6 @@ GPL-3.0 许可证 - 详见 [LICENSE](LICENSE)
 
 ---
 
-**版本 | Version**: 2.0.0  
-**版权 | Copyright**: © 2026 OffroadOps  
+**版本 | Version**: 2.0.0
+**版权 | Copyright**: © 2026 OffroadOps
 **基于 | Based on**: Netch 1.9.7

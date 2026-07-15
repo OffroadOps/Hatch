@@ -1,0 +1,22 @@
+<linker>
+  <!-- Preserve server types loaded through reflection. -->
+  <assembly fullname="Hatch">
+    <type fullname="Hatch.Servers.*" preserve="all" />
+    <type fullname="Hatch.Models.*" preserve="all" />
+    <type fullname="Hatch.Controllers.*" preserve="all" />
+    <type fullname="Hatch.Forms.*" preserve="all" />
+    <type fullname="Hatch.Utils.*" preserve="all" />
+    <type fullname="Hatch.Interfaces.*" preserve="all" />
+    <type fullname="Hatch.JsonConverter.*" preserve="all" />
+  </assembly>
+
+  <!-- Preserve JSON serialization support. -->
+  <assembly fullname="System.Text.Json">
+    <type fullname="System.Text.Json.*" preserve="all" />
+  </assembly>
+
+  <!-- Preserve Windows Forms. -->
+  <assembly fullname="System.Windows.Forms">
+    <type fullname="System.Windows.Forms.*" preserve="all" />
+  </assembly>
+</linker>

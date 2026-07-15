@@ -5,5 +5,8 @@
         <Platforms>x64</Platforms>
         <LangVersion>latest</LangVersion>
         <Nullable>enable</Nullable>
+        <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+        <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
+        <Deterministic>true</Deterministic>
     </PropertyGroup>
 </Project>

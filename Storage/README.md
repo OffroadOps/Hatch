@@ -142,6 +142,6 @@ Hatch/
 
 ---
 
-**版本 | Version**: 2.0.0  
-**基于 | Based on**: Netch 1.9.7  
+**版本 | Version**: 2.0.0
+**基于 | Based on**: Netch 1.9.7
 **许可证 | License**: GPL-3.0
