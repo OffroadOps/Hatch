@@ -13,23 +13,23 @@ jobs:
     runs-on: windows-2022
     steps:
       - name: Checkout tagged source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup .NET 8.0.100
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 8.0.100
           cache: true
           cache-dependency-path: '**/packages.lock.json'
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: 1.25.5
           cache-dependency-path: Other/aiodns/go.sum
 
       - name: Setup MSBuild
-        uses: microsoft/setup-msbuild@v2
+        uses: microsoft/setup-msbuild@v3
 
       - name: Setup MinGW for aiodns
         uses: msys2/setup-msys2@v2
@@ -72,7 +72,7 @@ jobs:
           $lines | Set-Content release-notes.md -Encoding UTF8
 
       - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           body_path: release-notes.md
           fail_on_unmatched_files: true
