@@ -51,20 +51,15 @@
           "System.Runtime.CompilerServices.Unsafe": "6.0.0"
         }
       },
-      "Microsoft.NET.ILLink.Tasks": {
-        "type": "Direct",
-        "requested": "[8.0.0, )",
-        "resolved": "8.0.0",
-        "contentHash": "B3etT5XQ2nlWkZGO2m/ytDYrOmSsQG1XNBaM6ZYlX5Ch/tDrMFadr0/mK6gjZwaQc55g+5+WZMw4Cz3m8VEF7g=="
-      },
       "Microsoft.VisualStudio.Threading": {
         "type": "Direct",
-        "requested": "[17.12.19, )",
-        "resolved": "17.12.19",
-        "contentHash": "eLiGMkMYyaSguqHs3lsrFxy3tAWSLuPEL2pIWRcADMDVAs2xqm3dr1d9QYjiEusTgiClF9KD6OB2NdZP72Oy0Q==",
+        "requested": "[18.12.1, )",
+        "resolved": "18.12.1",
+        "contentHash": "2+fsNegeifo4xVC8z4xJuWgr8H+GRjKuEk5gJT6HM0iujWkaLQ1Helaa8LWnXVKq/9e9Sqvefu4iacaQhB7RXA==",
         "dependencies": {
-          "Microsoft.VisualStudio.Threading.Analyzers": "17.12.19",
-          "Microsoft.VisualStudio.Validation": "17.8.8"
+          "Microsoft.VisualStudio.Threading.Analyzers": "18.12.1",
+          "Microsoft.VisualStudio.Threading.Only": "18.12.1",
+          "Microsoft.VisualStudio.Validation": "17.13.22"
         }
       },
       "Microsoft.Windows.CsWin32": {
@@ -288,13 +283,21 @@
       },
       "Microsoft.VisualStudio.Threading.Analyzers": {
         "type": "Transitive",
-        "resolved": "17.12.19",
-        "contentHash": "v3IYeedjoktvZ+GqYmLudxZJngmf/YWIxNT2Uy6QMMN19cvw+nkWoip1Gr1RtnFkUo1MPUVMis4C8Kj8d8DpSQ=="
+        "resolved": "18.12.1",
+        "contentHash": "sQt7NpnselT1gP1a7bTfhmfHYV0jbavst/8mOoWTMSjXhXzWPssqgBoIwrxNsgJUa7XQzD2raSRMAFfmlepxNw=="
+      },
+      "Microsoft.VisualStudio.Threading.Only": {
+        "type": "Transitive",
+        "resolved": "18.12.1",
+        "contentHash": "2i4Gy3X3M0W7KM9ZfAQBH0C5xEPXfy3JpgH8DPPkGcIe0bSEbuG1cIJlxlq2COGf8NeKGmUWRQOI1OjDVDndZg==",
+        "dependencies": {
+          "Microsoft.VisualStudio.Validation": "17.13.22"
+        }
       },
       "Microsoft.VisualStudio.Validation": {
         "type": "Transitive",
-        "resolved": "17.8.8",
-        "contentHash": "rWXThIpyQd4YIXghNkiv2+VLvzS+MCMKVRDR0GAMlflsdo+YcAN2g2r5U1Ah98OFjQMRexTFtXQQ2LkajxZi3g=="
+        "resolved": "17.13.22",
+        "contentHash": "fC20ITOxlUpGQ0ltAxITQbeFxwuB6OjLT3lByC4+/Gm46o/Mwv9hlIVrBhiUhnqdQzUUvr4EHkdiYe7WOSMLmw=="
       },
       "Microsoft.Win32.Registry": {
         "type": "Transitive",
