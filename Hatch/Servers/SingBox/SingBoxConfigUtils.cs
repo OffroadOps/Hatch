@@ -28,9 +28,7 @@ public static class SingBoxConfigUtils
                     type = "mixed",
                     tag = "mixed-in",
                     listen = Global.Settings.LocalAddress,
-                    listen_port = Global.Settings.Socks5LocalPort,
-                    sniff = true,
-                    sniff_override_destination = false
+                    listen_port = Global.Settings.Socks5LocalPort
                 }
             },
             outbounds = new[]
@@ -40,12 +38,12 @@ public static class SingBoxConfigUtils
                 {
                     type = "direct",
                     tag = "direct"
-                },
-                new
-                {
-                    type = "block",
-                    tag = "block"
                 }
+            },
+            route = new
+            {
+                rules = new[] { new { action = "sniff" } },
+                final = "proxy"
             }
         };
 

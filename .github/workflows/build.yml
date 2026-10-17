@@ -1,31 +1,137 @@
-name: Hatch Build CI
+name: NPGA CI
 
+# Mainline: the Rust client (npga-rust) is the only active product tree
+# (refactor/DECISIONS.md ADR-001). The frozen C# client is still built when its
+# tree changes, because it currently produces the runtime package (pinned cores
+# plus native libraries) that the Rust client ships with.
 on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  build:
+  rust:
+    name: Rust client (npga-rust)
     runs-on: windows-2022
     steps:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Setup .NET 8.0.100
+      - name: Setup Rust 1.99.0
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.99.0
+          components: rustfmt, clippy
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            npga-rust/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('npga-rust/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Fetch version-pinned proxy cores
+        shell: pwsh
+        run: ./Tools/FetchPinnedCores.ps1 -RuntimeRoot .ci-runtime
+
+      - name: Format check
+        working-directory: npga-rust
+        run: cargo fmt --check
+
+      - name: Lint (clippy, warnings as errors)
+        working-directory: npga-rust
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+      - name: Tests (unit, migration, and real-core integration)
+        working-directory: npga-rust
+        env:
+          NPGA_RUNTIME_ROOT: ${{ github.workspace }}/.ci-runtime
+        run: cargo test --locked -- --include-ignored --test-threads=1
+
+      - name: Release build
+        working-directory: npga-rust
+        run: cargo build --release --locked
+
+      - name: Upload client binary
+        uses: actions/upload-artifact@v7
+        with:
+          name: NPGA-Rust-${{ github.sha }}
+          path: npga-rust/target/release/NPGA-Rust.exe
+          if-no-files-found: error
+
+  # Decides whether the frozen C# tree changed. A dedicated job is needed
+  # because a job-level `if` cannot inspect the pull request file list: the
+  # legacy tree currently produces the runtime package (pinned cores plus native
+  # libraries) that the Rust client ships with, so it must be validated before a
+  # merge, not only at release time.
+  changes:
+    name: Detect frozen-tree changes
+    # workflow_dispatch has no base commit to diff against; the legacy job below
+    # always runs for it, so the filter is only needed for push/pull_request.
+    if: github.event_name != 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      legacy: ${{ steps.filter.outputs.legacy }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          # May save a fetch roundtrip when the merge-base is within the last commits.
+          fetch-depth: 20
+
+      - name: Filter changed paths
+        id: filter
+        uses: dorny/paths-filter@v4
+        with:
+          filters: |
+            legacy:
+              - 'Hatch/**'
+              - 'Redirector/**'
+              - 'RouteHelper/**'
+              - 'Other/aiodns/**'
+              - 'Storage/**'
+              - 'Tests/**'
+              - 'installer/**'
+              - 'build.ps1'
+              - 'build.dependencies.json'
+              - 'common.props'
+              - 'global.json'
+              - 'Hatch.sln'
+              - '.github/workflows/build.yml'
+
+  legacy:
+    name: Frozen C# client (runtime package)
+    needs: changes
+    # Manual dispatch always builds; otherwise only when the frozen tree changed.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      needs.changes.outputs.legacy == 'true'
+    runs-on: windows-2022
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup .NET 10.0.401
         uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: 8.0.100
+          dotnet-version: 10.0.401
           cache: true
           cache-dependency-path: '**/packages.lock.json'
 
       - name: Setup Go
         uses: actions/setup-go@v6
         with:
-          go-version: 1.25.5
+          go-version: 1.25.14
           cache-dependency-path: Other/aiodns/go.sum
 
       - name: Setup MSBuild
@@ -52,9 +158,9 @@ jobs:
       - name: Upload release archive
         uses: actions/upload-artifact@v7
         with:
-          name: Hatch-${{ github.sha }}
+          name: NPGA-legacy-${{ github.sha }}
           path: |
-            release/Hatch.zip
-            release/HatchSetup.exe
+            release/NPGA.zip
+            release/NPGASetup.exe
             release/SHA256SUMS.txt
           if-no-files-found: error

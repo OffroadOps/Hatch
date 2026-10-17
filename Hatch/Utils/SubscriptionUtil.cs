@@ -32,13 +32,9 @@ public static class SubscriptionUtil
             else
                 throw new Exception($"{item.Remark} Response Status Code: {code}");
 
-            foreach (var server in servers)
-                server.Group = item.Remark;
-
             lock (ServerLock)
             {
-                Global.Settings.Server.RemoveAll(server => server.Group.Equals(item.Remark));
-                Global.Settings.Server.AddRange(servers);
+                ReplaceServers(Global.Settings.Server, item.Remark, servers);
             }
 
             Global.MainForm.NotifyTip(i18N.TranslateFormat("Update {1} server(s) from {0}", item.Remark, servers.Count));
@@ -48,5 +44,17 @@ public static class SubscriptionUtil
             Global.MainForm.NotifyTip($"{i18N.TranslateFormat("Update servers failed from {0}", item.Remark)}\n{e.Message}", info: false);
             Log.Warning(e, "Update servers failed");
         }
+    }
+
+    public static void ReplaceServers(List<Server> existing, string group, List<Server> incoming)
+    {
+        // Validate the complete update before changing the existing list.
+        if (incoming.Count == 0 || incoming.Any(s => string.IsNullOrWhiteSpace(s.Hostname) || s.Port == 0))
+            throw new FormatException("Subscription returned no valid servers; existing servers were preserved.");
+
+        foreach (var server in incoming)
+            server.Group = group;
+        existing.RemoveAll(server => string.Equals(server.Group, group, StringComparison.Ordinal));
+        existing.AddRange(incoming);
     }
 }

@@ -26,7 +26,7 @@
     "Server": "服务器",
     "Import Servers From Clipboard": "从剪贴板导入服务器",
     "Add [{0}] Server": "添加 [{0}] 服务器",
-    "Hatch is now minimized to the notification bar, double click this icon to restore.": "Hatch 已最小化至通知栏，双击此图标恢复窗口",
+    "NPGA is now minimized to the notification bar, double click this icon to restore.": "NPGA 已最小化至通知栏，双击此图标恢复窗口",
     "New version available": "发现新版本",
     "Already latest version": "已经是最新版本",
     "Check for update failed": "检查更新失败",
@@ -97,7 +97,7 @@
     "{0} has been uninstalled": "{0} 已卸载",
     "Clean DNS Cache": "清理 DNS 缓存",
     "DNS cache cleanup succeeded": "DNS 缓存清理成功",
-    "Remove Hatch Firewall Rules": "移除 Hatch 防火墙规则",
+    "Remove NPGA Firewall Rules": "移除 NPGA 防火墙规则",
 
     "Open Directory": "打开目录",
     "Show/Hide Console": "显示/隐藏控制台",
@@ -199,7 +199,7 @@
     "{0} won't get developers' support, Please do not report any issues or seek help from developers.": "{0} 将不会得到开发者的支持，请不要报告任何问题或寻求开发人员的帮助。",
     "No Support": "不受支持",
 
-    "About Hatch": "关于 Hatch",
+    "About NPGA": "关于 NPGA",
     "Check for Updates": "检查更新",
     "Checking...": "检查中...",
     "Update Cores": "更新内核",
@@ -207,7 +207,7 @@
     "Close": "关闭",
     "A lightweight and powerful network proxy tool for Windows": "适用于 Windows 的轻量级且强大的网络代理工具",
     "Original Project: Netch on GitHub": "原始项目: Netch on GitHub",
-    "Visit Hatch on GitHub": "在 GitHub 上访问 Hatch",
+    "Visit NPGA on GitHub": "在 GitHub 上访问 NPGA",
     "Xray-core: Checking...": "Xray-core: 检查中...",
     "Xray-core: Installed": "Xray-core: 已安装",
     "Xray-core: Not installed": "Xray-core: 未安装",
@@ -232,5 +232,5 @@
     "WinTUN": "WinTUN",
     "Others": "其他",
     "AioDNS": "AioDNS",
-    "Hatched from Netch - Without Netch, no Hatch": "孵化自 Netch - 没有 Netch 就没有 Hatch"
+    "Based on Netch 1.9.7": "孵化自 Netch - 没有 Netch 就没有 NPGA"
 }

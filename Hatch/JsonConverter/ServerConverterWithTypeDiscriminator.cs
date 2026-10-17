@@ -11,7 +11,7 @@ public class ServerConverterWithTypeDiscriminator : JsonConverter<Server>
     {
         var jsonElement = JsonSerializer.Deserialize<JsonElement>(ref reader);
         var type = ServerHelper.GetTypeByTypeName(jsonElement.GetProperty("Type").GetString()!);
-        return (Server)jsonElement.Deserialize(type)!;
+        return (Server)jsonElement.Deserialize(type, options)!;
     }
 
     public override void Write(Utf8JsonWriter writer, Server value, JsonSerializerOptions options)

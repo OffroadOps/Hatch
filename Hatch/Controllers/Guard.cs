@@ -16,6 +16,11 @@ public abstract class Guard
 
     private FileStream? _logFileStream;
     private StreamWriter? _logStreamWriter;
+    private readonly SemaphoreSlim _logLock = new(1, 1);
+    private readonly SemaphoreSlim _stopLock = new(1, 1);
+    private readonly CancellationTokenSource _outputCancellation = new();
+    private Task[] _readers = [];
+    private bool _disposed;
 
     /// <param name="mainFile">Application path relative to Hatch\bin.</param>
     /// <param name="redirectOutput"></param>
@@ -46,7 +51,7 @@ public abstract class Guard
         };
     }
 
-    protected string LogPath => Path.Combine(Global.HatchDir, $"logging\\{Name}.log");
+    protected virtual string LogPath => Path.Combine(Global.HatchDir, $"logging\\{Name}.log");
 
     protected virtual IEnumerable<string> StartedKeywords { get; } = new List<string>();
 
@@ -54,7 +59,8 @@ public abstract class Guard
 
     public abstract string Name { get; }
 
-    private State State { get; set; } = State.Waiting;
+    private volatile State _state = State.Waiting;
+    private State State { get => _state; set => _state = value; }
 
     private bool RedirectOutput { get; }
 
@@ -76,16 +82,7 @@ public abstract class Guard
 
         if (RedirectOutput)
         {
-            ReadOutputAsync(Instance.StandardOutput).ContinueWith(t =>
-            {
-                if (t.IsFaulted && t.Exception != null)
-                    Log.Error(t.Exception, "Failed to read stdout from {ProcessName}", Instance.ProcessName);
-            });
-            ReadOutputAsync(Instance.StandardError).ContinueWith(t =>
-            {
-                if (t.IsFaulted && t.Exception != null)
-                    Log.Error(t.Exception, "Failed to read stderr from {ProcessName}", Instance.ProcessName);
-            });
+            _readers = [ReadOutputAsync(Instance.StandardOutput), ReadOutputAsync(Instance.StandardError)];
 
             if (!StartedKeywords.Any())
             {
@@ -98,6 +95,8 @@ public abstract class Guard
             for (var i = 0; i < ProcessStartMaxPollCount; i++)
             {
                 await Task.Delay(ProcessStartPollIntervalMs);
+                if (Instance.HasExited)
+                    State = State.Stopped;
                 switch (State)
                 {
                     case State.Started:
@@ -117,22 +116,32 @@ public abstract class Guard
 
     private async Task ReadOutputAsync(TextReader reader)
     {
-        string? line;
-        while ((line = await reader.ReadLineAsync()) != null)
+        try
         {
-            await _logStreamWriter!.WriteLineAsync(line);
-            OnReadNewLine(line);
-
-            if (State == State.Starting)
+            string? line;
+            while ((line = await reader.ReadLineAsync(_outputCancellation.Token)) != null)
             {
-                if (StartedKeywords.Any(s => line.Contains(s)))
-                    State = State.Started;
-                else if (FailedKeywords.Any(s => line.Contains(s)))
+                await _logLock.WaitAsync(_outputCancellation.Token);
+                try { await _logStreamWriter!.WriteLineAsync(line); }
+                finally { _logLock.Release(); }
+                OnReadNewLine(line);
+
+                if (State == State.Starting)
                 {
-                    OnStartFailed();
-                    State = State.Stopped;
+                    if (StartedKeywords.Any(s => line.Contains(s)))
+                        State = State.Started;
+                    else if (FailedKeywords.Any(s => line.Contains(s)))
+                    {
+                        State = State.Stopped;
+                    }
                 }
             }
+        }
+        catch (OperationCanceledException) when (_outputCancellation.IsCancellationRequested) { }
+        catch (Exception e)
+        {
+            Log.Error(e, "Failed to read output from {Name}", Name);
+            State = State.Stopped;
         }
     }
 
@@ -143,45 +152,57 @@ public abstract class Guard
 
     protected async Task StopGuardAsync()
     {
+        await _stopLock.WaitAsync();
         try
         {
-            if (Instance is { HasExited: false })
+            if (_disposed) return;
+            try
             {
-                try
+                if (Instance is { HasExited: false })
                 {
-                    Instance.Kill();
-                }
-                catch (Exception killEx)
-                {
-                    Log.Warning(killEx, "Failed to kill {Name}, attempting to wait for exit", Instance.ProcessName);
-                }
+                    try
+                    {
+                        Instance.Kill(entireProcessTree: true);
+                    }
+                    catch (Exception killEx)
+                    {
+                        Log.Warning(killEx, "Failed to kill {Name}, attempting to wait for exit", Name);
+                    }
 
-                try
-                {
-                    await Instance.WaitForExitAsync();
-                }
-                catch (Exception waitEx)
-                {
-                    Log.Warning(waitEx, "Failed to wait for {Name} exit", Instance.ProcessName);
+                    try
+                    {
+                        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                        await Instance.WaitForExitAsync(timeout.Token);
+                    }
+                    catch (Exception waitEx)
+                    {
+                        Log.Warning(waitEx, "Failed to wait for {Name} exit", Name);
+                    }
                 }
             }
-        }
-        catch (Exception e)
-        {
-            Log.Error(e, "Stop {Name} failed", Instance.ProcessName);
-        }
-        finally
-        {
-            if (_logStreamWriter != null)
-                await _logStreamWriter.DisposeAsync();
+            catch (Exception e)
+            {
+                Log.Error(e, "Stop {Name} failed", Name);
+            }
+            finally
+            {
+                // Drain final output after process exit before cancelling stuck readers.
+                try { await Task.WhenAll(_readers).WaitAsync(TimeSpan.FromSeconds(2)); }
+                catch (TimeoutException) { }
+                _outputCancellation.Cancel();
+                await Task.WhenAll(_readers);
+                if (_logStreamWriter != null)
+                    await _logStreamWriter.DisposeAsync();
 
-            if (_logFileStream != null)
-                await _logFileStream.DisposeAsync();
+                if (_logFileStream != null)
+                    await _logFileStream.DisposeAsync();
 
-            Instance.Dispose();
-
-            State = State.Stopped;
+                Instance.Dispose();
+                _disposed = true;
+                State = State.Stopped;
+            }
         }
+        finally { _stopLock.Release(); }
     }
 
     protected virtual void OnStarted()

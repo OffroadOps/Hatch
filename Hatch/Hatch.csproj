@@ -1,9 +1,11 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <Import Project="..\common.props" />
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
+    <AssemblyName>NPGA</AssemblyName>
+    <RootNamespace>Hatch</RootNamespace>
     <Configurations>Debug;Release</Configurations>
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -19,7 +21,7 @@
     <AnalysisMode>Default</AnalysisMode>
     <CodeAnalysisTreatWarningsAsErrors>true</CodeAnalysisTreatWarningsAsErrors>
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <TargetFramework>net10.0-windows</TargetFramework>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -98,7 +100,6 @@
     <PackageReference Include="TaskScheduler" Version="2.12.0" />
     <PackageReference Include="WindowsFirewallHelper" Version="2.2.0.86" />
     <PackageReference Include="System.ServiceProcess.ServiceController" Version="8.0.1" />
-    <PackageReference Include="System.Text.Encoding.CodePages" Version="8.0.0" />
     <PackageReference Include="WindowsJobAPI" Version="6.1.0" />
   </ItemGroup>
 

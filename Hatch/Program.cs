@@ -90,7 +90,7 @@ public static class Program
         InitConsole();
 
         CreateLogger();
-        Log.Information("Hatch Startup - Entry Point");
+        Log.Information("NPGA Startup - Entry Point");
 
         // load configuration
         Log.Information("Loading configuration...");
@@ -168,8 +168,8 @@ public static class Program
             }
             catch { /* ignored */ }
 
-            MessageBox.Show($"Hatch failed to start:\n\n{ex.Message}\n\nPlease check logging/application.log for details.",
-                "Hatch Startup Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            MessageBox.Show($"NPGA failed to start:\n\n{ex.Message}\n\nPlease check logging/application.log for details.",
+                "NPGA Startup Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             Environment.Exit(-1);
         }
     }
@@ -178,7 +178,7 @@ public static class Program
 
     private static async Task LogEnvironmentAsync()
     {
-        Log.Information("Hatch Version: {Version}", $"{UpdateChecker.Owner}/{UpdateChecker.Repo}@{UpdateChecker.Version}");
+        Log.Information("NPGA Version: {Version}", $"{UpdateChecker.Owner}/{UpdateChecker.Repo}@{UpdateChecker.Version}");
         Log.Information("OS: {OSVersion}", Environment.OSVersion);
         Log.Information("SHA256: {Hash}", $"{await Utils.Utils.Sha256CheckSumAsync(Global.HatchExecutable)}");
         Log.Information("System Language: {Language}", CultureInfo.CurrentCulture.Name);

@@ -107,8 +107,12 @@ public static class MainController
         }
         catch (Exception e)
         {
-            releaser.Dispose();
-            await StopAsync();
+            // The semaphore is still held here, so stop through the lock-held
+            // helper. Calling StopAsync() (which acquires Lock itself) would
+            // deadlock, and releasing the semaphore early to let it re-acquire
+            // would double-release the Releaser and silently inflate
+            // CurrentCount above MaxCount.
+            await StopCoreAsync();
 
             switch (e)
             {
@@ -138,7 +142,17 @@ public static class MainController
         }
 
         using var _ = await Lock.EnterAsync();
+        await StopCoreAsync();
+    }
 
+    /// <summary>
+    /// Stops the active server and mode controllers.
+    /// The caller must already hold <see cref="Lock"/>; this is what
+    /// <see cref="StopAsync"/> and the failure path of <see cref="StartAsync"/>
+    /// share, so neither can release the semaphore twice.
+    /// </summary>
+    private static async Task StopCoreAsync()
+    {
         if (ServerController == null && ModeController == null)
             return;
 
@@ -188,7 +202,8 @@ public static class MainController
             if (fileName == null)
                 continue;
 
-            if (fileName.StartsWith(Global.HatchDir))
+            var applicationDirectory = Path.GetFullPath(Global.HatchDir).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            if (Path.GetFullPath(fileName).StartsWith(applicationDirectory, StringComparison.OrdinalIgnoreCase))
             {
                 p.Kill();
                 p.WaitForExit();
@@ -208,22 +223,22 @@ public static class MainController
         return Socks5ServerTestUtils.DiscoveryNatTypeAsync(Socks5Server, ctx);
     }
 
-    public static Task<int?> HttpConnectAsync(CancellationToken ctx = default)
+    public static async Task<int?> HttpConnectAsync(CancellationToken ctx = default)
     {
         Debug.Assert(Socks5Server != null, nameof(Socks5Server) + " != null");
         try
         {
-            return Socks5ServerTestUtils.HttpConnectAsync(Socks5Server, ctx);
+            return await Socks5ServerTestUtils.HttpConnectAsync(Socks5Server, ctx);
         }
         catch (OperationCanceledException)
         {
             // 用户取消操作，正常情况
-            return Task.FromResult<int?>(null);
+            return null;
         }
         catch (Exception e)
         {
             Log.Warning(e, "HTTP connect test failed");
-            return Task.FromResult<int?>(null);
+            return null;
         }
     }
 }

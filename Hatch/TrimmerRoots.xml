@@ -1,6 +1,6 @@
 <linker>
   <!-- Preserve server types loaded through reflection. -->
-  <assembly fullname="Hatch">
+  <assembly fullname="NPGA">
     <type fullname="Hatch.Servers.*" preserve="all" />
     <type fullname="Hatch.Models.*" preserve="all" />
     <type fullname="Hatch.Controllers.*" preserve="all" />

@@ -1,10 +1,11 @@
-#define MyAppName "Hatch"
+#define MyAppName "Netch.Plus Game Accelerator"
+#define MyAppShortName "NPGA"
 #define MyAppVersion "2.0.0"
 #define MyAppPublisher "OffroadOps"
-#define MyAppExeName "Hatch.exe"
+#define MyAppExeName "NPGA.exe"
 
 #ifndef MySourceDir
-  #define MySourceDir "..\release\Hatch"
+  #define MySourceDir "..\release\NPGA"
 #endif
 
 [Setup]
@@ -13,11 +14,11 @@ AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppVerName={#MyAppName} {#MyAppVersion}
 AppPublisher={#MyAppPublisher}
-DefaultDirName={autopf}\{#MyAppName}
+DefaultDirName={autopf}\{#MyAppShortName}
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 OutputDir=..\release
-OutputBaseFilename=HatchSetup
+OutputBaseFilename=NPGASetup
 SetupIconFile=..\Hatch\Resources\Netch.ico
 Compression=lzma2/ultra64
 SolidCompression=yes

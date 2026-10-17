@@ -69,7 +69,7 @@ public static class ShareLink
         {
             list.AddRange(ServerHelper.GetUtilByTypeName("Socks5").ParseUri(text));
         }
-        else if (text.StartsWith("Hatch://"))
+        else if (text.StartsWith("NPGA://", StringComparison.OrdinalIgnoreCase) || text.StartsWith("Hatch://", StringComparison.OrdinalIgnoreCase))
         {
             list.Add(ParseHatchUri(text));
         }
@@ -100,19 +100,24 @@ public static class ShareLink
 
     private static Server ParseHatchUri(string text)
     {
-        text = URLSafeBase64Decode(text.Substring(8));
+        text = URLSafeBase64Decode(text[(text.IndexOf("://", StringComparison.Ordinal) + 3)..]);
 
         var HatchLink = JsonSerializer.Deserialize<JsonElement>(text);
 
         if (string.IsNullOrEmpty(HatchLink.GetProperty("Hostname").GetString()))
             throw new FormatException();
 
-        if (!ushort.TryParse(HatchLink.GetProperty("Port").GetString(), out _))
+        var portElement = HatchLink.GetProperty("Port");
+        var validPort = portElement.ValueKind == JsonValueKind.Number
+            ? portElement.TryGetUInt16(out var numericPort) && numericPort > 0
+            : portElement.ValueKind == JsonValueKind.String && ushort.TryParse(portElement.GetString(), out var stringPort) && stringPort > 0;
+        if (!validPort)
             throw new FormatException();
 
         return JsonSerializer.Deserialize<Server>(text,
             new JsonSerializerOptions
             {
+                NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowReadingFromString,
                 Converters = { new ServerConverterWithTypeDiscriminator() }
             })!;
     }
@@ -121,7 +126,7 @@ public static class ShareLink
     {
         var jsonSerializerOptions = Global.NewCustomJsonSerializerOptions();
         jsonSerializerOptions.WriteIndented = false;
-        return "Hatch://" + URLSafeBase64Encode(JsonSerializer.Serialize(s, jsonSerializerOptions));
+        return "NPGA://" + URLSafeBase64Encode(JsonSerializer.Serialize(s, s.GetType(), jsonSerializerOptions));
     }
 
     #region Utils

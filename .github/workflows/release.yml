@@ -1,31 +1,37 @@
-name: Hatch Release CI
+name: NPGA Release CI
 
+# A tagged release publishes the Rust client (mainline) plus the frozen C#
+# runtime package it bundles. The C# tree is still built because it currently
+# produces the pinned cores and native libraries; see refactor/DECISIONS.md
+# ADR-001 and refactor/PHASE-1-CHECKLIST.md (1.4).
 on:
   push:
     tags:
       - 'v*.*.*'
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  release:
+  runtime:
+    name: Runtime package (frozen C# tree)
     runs-on: windows-2022
     steps:
       - name: Checkout tagged source
         uses: actions/checkout@v7
 
-      - name: Setup .NET 8.0.100
+      - name: Setup .NET 10.0.401
         uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: 8.0.100
+          dotnet-version: 10.0.401
           cache: true
           cache-dependency-path: '**/packages.lock.json'
 
       - name: Setup Go
         uses: actions/setup-go@v6
         with:
-          go-version: 1.25.5
+          go-version: 1.25.14
           cache-dependency-path: Other/aiodns/go.sum
 
       - name: Setup MSBuild
@@ -49,12 +55,85 @@ jobs:
         shell: pwsh
         run: .\build.ps1 -Configuration Release -OutputPath release
 
+      - name: Upload runtime tree for the Rust packaging job
+        uses: actions/upload-artifact@v7
+        with:
+          name: npga-runtime
+          path: release/NPGA
+          if-no-files-found: error
+
+      - name: Upload legacy installer artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: npga-legacy-artifacts
+          path: |
+            release/NPGA.zip
+            release/NPGASetup.exe
+            release/SHA256SUMS.txt
+          if-no-files-found: error
+
+  rust-package:
+    name: Rust client package (mainline)
+    needs: runtime
+    runs-on: windows-2022
+    steps:
+      - name: Checkout tagged source
+        uses: actions/checkout@v7
+
+      - name: Setup Rust 1.99.0
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.99.0
+          components: rustfmt, clippy
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            npga-rust/target
+          key: ${{ runner.os }}-cargo-release-${{ hashFiles('npga-rust/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Download runtime tree
+        uses: actions/download-artifact@v5
+        with:
+          name: npga-runtime
+          path: .release-runtime
+
+      - name: Build Rust package (runs tests, clippy, fmt)
+        shell: pwsh
+        run: >-
+          .\build-rust.ps1
+          -RuntimePath .release-runtime
+          -OutputPath release-rust
+
+      - name: Upload Rust package
+        uses: actions/upload-artifact@v7
+        with:
+          name: npga-rust-artifacts
+          path: |
+            release-rust/NPGA-Rust.zip
+            release-rust/SHA256SUMS.txt
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub Release
+    needs: [runtime, rust-package]
+    runs-on: windows-2022
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v5
+        with:
+          path: artifacts
+
       - name: Generate updater-compatible release notes
         shell: pwsh
         run: |
-          $assets = Get-ChildItem release -File | Where-Object Name -In @('Hatch.zip', 'HatchSetup.exe')
+          $assets = Get-ChildItem artifacts -Recurse -File | Where-Object Name -In @('NPGA-Rust.zip', 'NPGA.zip', 'NPGASetup.exe')
           $lines = @(
-            "# Hatch $env:GITHUB_REF_NAME"
+            "# NPGA $env:GITHUB_REF_NAME"
             ''
             'See CHANGELOG.md for the complete release notes.'
             ''
@@ -77,6 +156,6 @@ jobs:
           body_path: release-notes.md
           fail_on_unmatched_files: true
           files: |
-            release/Hatch.zip
-            release/HatchSetup.exe
-            release/SHA256SUMS.txt
+            artifacts/npga-rust-artifacts/NPGA-Rust.zip
+            artifacts/npga-legacy-artifacts/NPGA.zip
+            artifacts/npga-legacy-artifacts/NPGASetup.exe

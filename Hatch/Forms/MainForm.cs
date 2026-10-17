@@ -38,6 +38,7 @@ public partial class MainForm : Form
     public MainForm()
     {
         InitializeComponent();
+        Text = $"{Constants.ShortName} - {Constants.ProductName}";
         NotifyIcon.Icon = Icon = Resources.icon;
 
         AddAddServerToolStripMenuItems();
@@ -45,7 +46,7 @@ public partial class MainForm : Form
         #region i18N Translations
 
         if (Flags.NoSupport)
-            _mainFormText.Add(Name, new[] { "{0} ({1})", "Hatch", "No Support" });
+            _mainFormText.Add(Name, new[] { "{0} ({1})", Constants.ShortName, "No Support" });
 
         _mainFormText.Add(UninstallServiceToolStripMenuItem.Name, new[] { "Uninstall {0}", "NF Service" });
 
@@ -720,7 +721,7 @@ public partial class MainForm : Form
         {
             if (State != State.Started)
             {
-                ipInfo = "\n\n" + i18N.Translate("Start Hatch to get IP info");
+                ipInfo = "\n\n" + i18N.Translate("Start NPGA to get IP info");
             }
             else
             {
@@ -1421,7 +1422,7 @@ public partial class MainForm : Form
         if (_isFirstCloseWindow)
         {
             // 显示提示语
-            NotifyTip(i18N.Translate("Hatch is now minimized to the notification bar, double click this icon to restore."));
+            NotifyTip(i18N.Translate("NPGA is now minimized to the notification bar, double click this icon to restore."));
             _isFirstCloseWindow = false;
         }
 

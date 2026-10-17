@@ -1,0 +1,58 @@
+{
+  "log": {
+    "level": "info",
+    "timestamp": true
+  },
+  "experimental": {
+    "clash_api": {
+      "external_controller": "127.0.0.1:9199"
+    }
+  },
+  "inbounds": [
+    {
+      "type": "tun",
+      "tag": "tun-in",
+      "interface_name": "NPGA-TEST",
+      "address": ["172.30.255.1/30", "fdfe:dcba:9876::1/126"],
+      "mtu": 1500,
+      "auto_route": true,
+      "strict_route": true,
+      "stack": "mixed",
+      "route_exclude_address": ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7", "fe80::/10"]
+    }
+  ],
+  "dns": {
+    "servers": [
+      { "type": "udp", "tag": "remote-dns", "server": "1.1.1.1", "detour": "proxy" },
+      { "type": "local", "tag": "local-dns" }
+    ],
+    "rules": [
+      { "domain_suffix": ".lan", "server": "local-dns" },
+      { "query_type": ["PTR"], "server": "local-dns" }
+    ],
+    "final": "remote-dns"
+  },
+  "outbounds": [
+    {
+      "type": "http",
+      "tag": "proxy",
+      "server": "127.0.0.1",
+      "server_port": 18081
+    },
+    {
+      "type": "direct",
+      "tag": "direct"
+    }
+  ],
+  "route": {
+    "default_domain_resolver": { "server": "local-dns", "strategy": "prefer_ipv4" },
+    "rules": [
+      { "action": "sniff" },
+      { "protocol": "dns", "action": "hijack-dns" },
+      { "process_name": ["npga-handle-test.exe"], "outbound": "proxy" },
+      { "process_name": ["npga-bypass-test.exe"], "outbound": "direct" },
+      { "ip_is_private": true, "outbound": "direct" }
+    ],
+    "final": "direct"
+  }
+}

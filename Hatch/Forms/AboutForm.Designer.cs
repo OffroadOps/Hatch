@@ -1,4 +1,4 @@
-namespace Hatch.Forms
+﻿namespace Hatch.Forms
 {
     partial class AboutForm
     {
@@ -45,7 +45,7 @@ namespace Hatch.Forms
             this.AppVersionLabel.Name = "AppVersionLabel";
             this.AppVersionLabel.Size = new System.Drawing.Size(150, 30);
             this.AppVersionLabel.TabIndex = 1;
-            this.AppVersionLabel.Text = "Hatch v2.0.0";
+            this.AppVersionLabel.Text = "NPGA v2.0.0";
             //
             // XrayVersionLabel
             //
@@ -76,7 +76,7 @@ namespace Hatch.Forms
             this.DescriptionLabel.Name = "DescriptionLabel";
             this.DescriptionLabel.Size = new System.Drawing.Size(380, 15);
             this.DescriptionLabel.TabIndex = 4;
-            this.DescriptionLabel.Text = "A lightweight and powerful network proxy tool for Windows";
+            this.DescriptionLabel.Text = "Netch.Plus Game Accelerator";
             //
             // TributeLabel
             //
@@ -87,7 +87,7 @@ namespace Hatch.Forms
             this.TributeLabel.Name = "TributeLabel";
             this.TributeLabel.Size = new System.Drawing.Size(280, 15);
             this.TributeLabel.TabIndex = 5;
-            this.TributeLabel.Text = "🥚 Hatched from Netch - Without Netch, no Hatch";
+            this.TributeLabel.Text = "🥚 Based on Netch 1.9.7";
             //
             // NetchLinkLabel
             //
@@ -110,7 +110,7 @@ namespace Hatch.Forms
             this.GitHubLinkLabel.Size = new System.Drawing.Size(150, 15);
             this.GitHubLinkLabel.TabIndex = 7;
             this.GitHubLinkLabel.TabStop = true;
-            this.GitHubLinkLabel.Text = "Visit Hatch on GitHub";
+            this.GitHubLinkLabel.Text = "Visit NPGA on GitHub";
             this.GitHubLinkLabel.LinkClicked += new System.Windows.Forms.LinkLabelLinkClickedEventHandler(this.GitHubLinkLabel_LinkClicked);
             //
             // CheckUpdateButton
@@ -164,7 +164,7 @@ namespace Hatch.Forms
             this.MinimizeBox = false;
             this.Name = "AboutForm";
             this.StartPosition = System.Windows.Forms.FormStartPosition.CenterParent;
-            this.Text = "About Hatch";
+            this.Text = "About NPGA";
             ((System.ComponentModel.ISupportInitialize)(this.LogoPictureBox)).EndInit();
             this.ResumeLayout(false);
             this.PerformLayout();

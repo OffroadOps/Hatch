@@ -1,3 +1,4 @@
+#Requires -Version 7.0
 [CmdletBinding()]
 param(
     [ValidateSet('Debug', 'Release')]
@@ -9,6 +10,8 @@ param(
 
     [switch]$SkipNativeBuild,
 
+    [switch]$UsePrebuiltAioDns,
+
     [switch]$SkipTests,
 
     [switch]$SkipInstaller
@@ -19,9 +22,12 @@ Set-StrictMode -Version Latest
 
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $outputRoot = [IO.Path]::GetFullPath((Join-Path $root $OutputPath))
-$appDir = Join-Path $outputRoot 'Hatch'
+$appDir = Join-Path $outputRoot 'NPGA'
 $cacheDir = Join-Path $root '.build-cache'
 $publishDir = Join-Path $cacheDir "publish-$Configuration"
+. (Join-Path $root 'Tools\BuildPathSafety.ps1')
+Assert-BuildDirectory $root $outputRoot -Output
+Assert-BuildDirectory $root $publishDir
 
 function Resolve-DotNet {
     $command = Get-Command dotnet -ErrorAction SilentlyContinue
@@ -30,7 +36,7 @@ function Resolve-DotNet {
     $localDotNet = Join-Path $env:LOCALAPPDATA 'Microsoft\dotnet\dotnet.exe'
     if (Test-Path -LiteralPath $localDotNet) { return $localDotNet }
 
-    throw 'The .NET SDK required by global.json is not installed. Install .NET SDK 8.0.100.'
+    throw 'The .NET SDK required by global.json is not installed. Install .NET SDK 10.0.401.'
 }
 
 function Resolve-MSBuild {
@@ -119,6 +125,16 @@ function Copy-RequiredFile([string]$Source, [string]$Destination) {
 Push-Location $root
 try {
     $dotnet = Resolve-DotNet
+    & $dotnet --version
+    if ($LASTEXITCODE -ne 0) { throw 'The SDK pinned by global.json is unavailable.' }
+    if (-not $SkipTests) { & (Join-Path $root 'Tests\BuildPathSafetyTests.ps1') }
+    if (-not $SkipNativeBuild -and -not $SkipTests) {
+        $testMSBuild = Resolve-MSBuild
+        & $testMSBuild '.\Tests\NativeSocksTests.vcxproj' /p:Configuration=Release /p:Platform=x64 /m /v:minimal /nologo
+        if ($LASTEXITCODE -ne 0) { throw 'Native SOCKS test build failed.' }
+        & '.\Tests\bin\Native\NativeSocksTests.exe'
+        if ($LASTEXITCODE -ne 0) { throw 'Native SOCKS regression tests failed.' }
+    }
     New-Item -ItemType Directory -Force $cacheDir | Out-Null
 
     if (Test-Path -LiteralPath $outputRoot) {
@@ -136,8 +152,13 @@ try {
     if (-not $SkipTests) {
         & $dotnet restore '.\Tests\Tests.csproj' -p:Configuration=$Configuration -r win-x64 --locked-mode
         if ($LASTEXITCODE -ne 0) { throw "test restore failed with exit code $LASTEXITCODE" }
-        & $dotnet test '.\Tests\Tests.csproj' -c $Configuration -p:Platform=x64 --no-restore
-        if ($LASTEXITCODE -ne 0) { throw "Tests failed with exit code $LASTEXITCODE" }
+        $previousConfigOutput = $env:HATCH_CONFIG_CHECK_OUTPUT
+        try {
+            $env:HATCH_CONFIG_CHECK_OUTPUT = Join-Path $cacheDir 'singbox-regression.json'
+            & $dotnet test '.\Tests\Tests.csproj' -c $Configuration -p:Platform=x64 --no-restore
+            if ($LASTEXITCODE -ne 0) { throw "Tests failed with exit code $LASTEXITCODE" }
+        }
+        finally { $env:HATCH_CONFIG_CHECK_OUTPUT = $previousConfigOutput }
     }
 
     if ($SkipNativeBuild) {
@@ -155,10 +176,15 @@ try {
         & $msbuild '.\RouteHelper\RouteHelper.vcxproj' /p:Configuration=$Configuration /p:Platform=x64 /m /v:minimal /nologo
         if ($LASTEXITCODE -ne 0) { throw "RouteHelper build failed with exit code $LASTEXITCODE" }
 
+
         Copy-RequiredFile (Join-Path $root "Redirector\bin\$Configuration\Redirector.bin") (Join-Path $appDir 'Redirector.bin')
         Copy-RequiredFile (Join-Path $root "Redirector\bin\$Configuration\nfapi.dll") (Join-Path $appDir 'nfapi.dll')
         Copy-RequiredFile (Join-Path $root "RouteHelper\bin\$Configuration\RouteHelper.bin") (Join-Path $appDir 'RouteHelper.bin')
 
+        if ($UsePrebuiltAioDns) {
+            Copy-RequiredFile (Join-Path $root 'artifacts\Hatch\bin\aiodns.bin') (Join-Path $appDir 'bin\aiodns.bin')
+        }
+        else {
         if (-not (Get-Command go -ErrorAction SilentlyContinue)) {
             throw 'Go is required to build aiodns.bin from source.'
         }
@@ -180,9 +206,10 @@ try {
             $env:GOARCH = $oldGoArch
             if ((Get-Location).Path -ne $root) { Pop-Location }
         }
+        }
     }
 
-    Write-Host 'Publishing Hatch...'
+    Write-Host 'Publishing NPGA...'
     & $dotnet publish '.\Hatch\Hatch.csproj' -c $Configuration -r win-x64 --self-contained $SelfContained -p:Platform=x64 -p:PublishSingleFile=true --no-restore -o $publishDir
     if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed with exit code $LASTEXITCODE" }
     Copy-Item -Path (Join-Path $publishDir '*') -Destination $appDir -Recurse -Force
@@ -201,12 +228,21 @@ try {
         Install-PinnedDependency $property.Name $property.Value
     }
 
-    $zipPath = Join-Path $outputRoot 'Hatch.zip'
+    if (-not $SkipTests) {
+        & (Join-Path $appDir 'bin\sing-box.exe') check -c (Join-Path $cacheDir 'singbox-regression.json')
+        if ($LASTEXITCODE -ne 0) { throw 'Generated sing-box configuration failed core validation.' }
+    }
+
+    $zipPath = Join-Path $outputRoot 'NPGA.zip'
     Compress-Archive -LiteralPath $appDir -DestinationPath $zipPath -CompressionLevel Optimal -Force
 
     if (-not $SkipInstaller) {
         $isccCommand = Get-Command iscc -ErrorAction SilentlyContinue
         $isccPath = if ($isccCommand) { $isccCommand.Source } else { $null }
+        if (-not $isccPath) {
+            $userIscc = Join-Path $env:LOCALAPPDATA 'Programs\Inno Setup 6\ISCC.exe'
+            if (Test-Path -LiteralPath $userIscc) { $isccPath = $userIscc }
+        }
         if (-not $isccPath) {
             $defaultIscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
             if (Test-Path -LiteralPath $defaultIscc) { $isccPath = $defaultIscc }
@@ -214,7 +250,7 @@ try {
         if (-not $isccPath) {
             throw 'Inno Setup 6 was not found. Use -SkipInstaller for archive-only builds.'
         }
-        & $isccPath '/Qp' '.\installer\Hatch.iss'
+        & $isccPath '/Qp' "/DMySourceDir=$appDir" "/O$outputRoot" '.\installer\Hatch.iss'
         if ($LASTEXITCODE -ne 0) { throw "Installer build failed with exit code $LASTEXITCODE" }
     }
 

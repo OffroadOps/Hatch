@@ -1,4 +1,4 @@
-# Hatch - 使用说明 | User Guide
+# NPGA - 使用说明 | User Guide
 
 [English](#english) | [中文](#中文)
 
@@ -9,7 +9,7 @@
 ### Quick Start
 
 1. **Run the Application**
-   - Double-click `Hatch.exe` to start
+   - Double-click `NPGA.exe` to start
 
 2. **Add a Server**
    - Click the server dropdown menu
@@ -28,15 +28,15 @@
 ### Important Notes
 
 - **First Run**: The application may take a few seconds to initialize
-- **Firewall**: Allow Hatch through Windows Firewall when prompted
+- **Firewall**: Allow NPGA through Windows Firewall when prompted
 - **Administrator**: Some modes (TUN/TAP) require administrator privileges
-- **Antivirus**: Add Hatch to your antivirus whitelist if needed
+- **Antivirus**: Add NPGA to your antivirus whitelist if needed
 
 ### Folder Structure
 
 ```
-Hatch/
-├── Hatch.exe          # Main application
+NPGA/
+├── NPGA.exe          # Main application
 ├── bin/               # Core components and dependencies
 │   ├── xray.exe       # Xray-core proxy engine
 │   ├── aiodns.bin     # DNS resolver
@@ -78,7 +78,7 @@ Hatch/
 ### 快速开始
 
 1. **运行应用程序**
-   - 双击 `Hatch.exe` 启动
+   - 双击 `NPGA.exe` 启动
 
 2. **添加服务器**
    - 点击服务器下拉菜单
@@ -97,15 +97,15 @@ Hatch/
 ### 重要提示
 
 - **首次运行**: 应用程序可能需要几秒钟初始化
-- **防火墙**: 提示时允许 Hatch 通过 Windows 防火墙
+- **防火墙**: 提示时允许 NPGA 通过 Windows 防火墙
 - **管理员权限**: 某些模式（TUN/TAP）需要管理员权限
-- **杀毒软件**: 如需要，将 Hatch 添加到杀毒软件白名单
+- **杀毒软件**: 如需要，将 NPGA 添加到杀毒软件白名单
 
 ### 文件夹结构
 
 ```
-Hatch/
-├── Hatch.exe          # 主程序
+NPGA/
+├── NPGA.exe          # 主程序
 ├── bin/               # 核心组件和依赖项
 │   ├── xray.exe       # Xray-core 代理引擎
 │   ├── aiodns.bin     # DNS 解析器

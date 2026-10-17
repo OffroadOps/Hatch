@@ -8,6 +8,9 @@ namespace SocksHelper
 	SOCKET Connect();
 	bool Handshake(SOCKET client);
 	bool SplitAddr(SOCKET client, PSOCKADDR_IN6 addr);
+	bool SendAll(SOCKET client, const char* buffer, int length);
+	bool ReceiveExact(SOCKET client, char* buffer, int length);
+	int DecodeUDP(PSOCKADDR_IN6 target, char* buffer, int size);
 
 	typedef class TCP
 	{
@@ -39,6 +42,8 @@ namespace SocksHelper
 		SOCKET udpSocket = INVALID_SOCKET;
 
 		SOCKADDR_IN6 address = { 0 };
+	private:
+		thread controlThread;
 	} *PUDP;
 };
 

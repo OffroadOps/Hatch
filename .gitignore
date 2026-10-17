@@ -1,6 +1,8 @@
 /.vs
 /.idea
 /release
+/release-*/
+/out-*/
 /packages
 /TestResults
 /publish-opt
@@ -62,3 +64,10 @@ crash_output.txt
 # Build output directories
 /out/
 /Release/
+
+# Local AI workspace memory
+/.workbuddy-ai/
+
+# Runtime assembly outputs (CI and local)
+/.ci-runtime/
+/.release-runtime/

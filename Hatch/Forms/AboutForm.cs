@@ -15,7 +15,8 @@ public partial class AboutForm : Form
     private void LoadVersionInfo()
     {
         // 软件版本
-        AppVersionLabel.Text = $"Hatch v{Constants.Version}";
+        AppVersionLabel.Text = $"{Constants.ShortName} v{Constants.Version}";
+        DescriptionLabel.Text = Constants.ProductName;
 
         // Xray 版本
         var xrayPath = Path.Combine("bin", "xray.exe");
@@ -238,7 +239,7 @@ public partial class AboutForm : Form
     private async Task<string> DownloadXrayAsync()
     {
         using var client = new HttpClient();
-        client.DefaultRequestHeaders.Add("User-Agent", "Hatch");
+        client.DefaultRequestHeaders.Add("User-Agent", "NPGA");
 
         var response = await client.GetStringAsync("https://api.github.com/repos/XTLS/Xray-core/releases/latest");
         var json = System.Text.Json.JsonDocument.Parse(response);
@@ -253,7 +254,7 @@ public partial class AboutForm : Form
             if (name.Contains("windows-64") && name.EndsWith(".zip"))
             {
                 var downloadUrl = asset.GetProperty("browser_download_url").GetString() ?? "";
-                await DownloadAndExtractAsync(downloadUrl, "xray.exe", version);
+                await DownloadAndExtractAsync(downloadUrl, "xray.exe", version, GetAssetDigest(asset));
                 return version;
             }
         }
@@ -264,7 +265,7 @@ public partial class AboutForm : Form
     private async Task<string> DownloadSingBoxAsync()
     {
         using var client = new HttpClient();
-        client.DefaultRequestHeaders.Add("User-Agent", "Hatch");
+        client.DefaultRequestHeaders.Add("User-Agent", "NPGA");
 
         var response = await client.GetStringAsync("https://api.github.com/repos/SagerNet/sing-box/releases/latest");
         var json = System.Text.Json.JsonDocument.Parse(response);
@@ -279,7 +280,7 @@ public partial class AboutForm : Form
             if (name.Contains("windows-amd64") && name.EndsWith(".zip"))
             {
                 var downloadUrl = asset.GetProperty("browser_download_url").GetString() ?? "";
-                await DownloadAndExtractAsync(downloadUrl, "sing-box.exe", version);
+                await DownloadAndExtractAsync(downloadUrl, "sing-box.exe", version, GetAssetDigest(asset));
                 return version;
             }
         }
@@ -287,8 +288,24 @@ public partial class AboutForm : Form
         throw new Exception("sing-box Windows release not found");
     }
 
-    private async Task DownloadAndExtractAsync(string url, string exeName, string version)
+    /// <summary>
+    /// Reads the GitHub release-asset digest ("sha256:&lt;hex&gt;") reported by the
+    /// releases API. Returns an empty string when the API did not publish one so
+    /// the caller can refuse the download instead of installing unverified bytes.
+    /// </summary>
+    private static string GetAssetDigest(System.Text.Json.JsonElement asset)
     {
+        if (!asset.TryGetProperty("digest", out var digest) || digest.ValueKind != System.Text.Json.JsonValueKind.String)
+            return string.Empty;
+
+        return Utils.Utils.ParseSha256Digest(digest.GetString());
+    }
+
+    private async Task DownloadAndExtractAsync(string url, string exeName, string version, string expectedSha256)
+    {
+        if (string.IsNullOrEmpty(expectedSha256))
+            throw new Exception($"No published SHA256 digest for {exeName}; refusing to install an unverified core.");
+
         using var client = new HttpClient();
         client.Timeout = TimeSpan.FromMinutes(5);
         var zipData = await client.GetByteArrayAsync(url);
@@ -300,17 +317,17 @@ public partial class AboutForm : Form
         {
             await File.WriteAllBytesAsync(tempZip, zipData);
 
-            // 校验下载完整性（文件大小 + SHA256）
-            var fileInfo = new FileInfo(tempZip);
-            if (fileInfo.Length != zipData.Length)
-                throw new Exception($"Downloaded file size mismatch for {exeName}");
-
-            // 计算 SHA256 校验和
+            // Verify the archive against the digest published by the releases API
+            // before extracting anything, so a tampered download is never
+            // installed into bin\ and later executed as a proxy core.
             var sha256 = await Utils.Utils.Sha256CheckSumAsync(tempZip);
             if (string.IsNullOrEmpty(sha256))
                 throw new Exception($"Failed to compute SHA256 for {exeName}");
 
-            Log.Information("Downloaded {ExeName} SHA256: {SHA256}", exeName, sha256);
+            if (!string.Equals(sha256, expectedSha256, StringComparison.OrdinalIgnoreCase))
+                throw new Exception($"SHA256 mismatch for {exeName}: expected {expectedSha256}, got {sha256}");
+
+            Log.Information("Verified {ExeName} SHA256: {SHA256}", exeName, sha256);
 
             if (Directory.Exists(tempExtract))
                 Directory.Delete(tempExtract, true);

@@ -127,6 +127,29 @@ public static class Utils
         }
     }
 
+    /// <summary>
+    /// Parses a GitHub release-asset digest such as <c>"sha256:&lt;hex&gt;"</c> into
+    /// its bare lowercase hex value. Returns an empty string when the digest is
+    /// missing or uses an unsupported algorithm, so callers refuse unverified
+    /// downloads instead of installing them.
+    /// </summary>
+    public static string ParseSha256Digest(string? digest)
+    {
+        const string prefix = "sha256:";
+        if (string.IsNullOrWhiteSpace(digest))
+            return "";
+
+        var value = digest.Trim();
+        if (!value.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            return "";
+
+        var hex = value[prefix.Length..].Trim();
+        if (hex.Length != 64 || !hex.All(Uri.IsHexDigit))
+            return "";
+
+        return hex.ToLowerInvariant();
+    }
+
     private static async Task<string> Sha256ComputeCoreAsync(Stream stream)
     {
         using var sha256 = SHA256.Create();
@@ -201,8 +224,13 @@ public static class Utils
 
     public static void RegisterHatchStartupItem()
     {
-        const string TaskName = "Hatch Startup";
+        const string TaskName = "NPGA Startup";
         var folder = TaskService.Instance.GetFolder("\\");
+        var legacyTask = folder.Tasks.FirstOrDefault(task => task.Name == "Hatch Startup");
+        if (legacyTask != null && legacyTask.Definition.Actions.OfType<ExecAction>().Any(action =>
+                string.Equals(action.Path, Global.HatchExecutable, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(action.Path, Path.Combine(Global.HatchDir, "Hatch.exe"), StringComparison.OrdinalIgnoreCase)))
+            folder.DeleteTask("Hatch Startup", false);
         var taskIsExists = folder.Tasks.Any(task => task.Name == TaskName);
 
         if (Global.Settings.RunAtStartup)
@@ -212,8 +240,8 @@ public static class Utils
 
             var td = TaskService.Instance.NewTask();
 
-            td.RegistrationInfo.Author = "Hatch";
-            td.RegistrationInfo.Description = "Hatch run at startup.";
+            td.RegistrationInfo.Author = "NPGA";
+            td.RegistrationInfo.Description = "NPGA run at startup.";
             td.Principal.RunLevel = TaskRunLevel.Highest;
 
             td.Triggers.Add(new LogonTrigger());
@@ -227,7 +255,7 @@ public static class Utils
             td.Settings.RunOnlyIfIdle = false;
             td.Settings.Compatibility = TaskCompatibility.V2_1;
 
-            TaskService.Instance.RootFolder.RegisterTaskDefinition("Hatch Startup", td);
+            TaskService.Instance.RootFolder.RegisterTaskDefinition("NPGA Startup", td);
         }
         else
         {

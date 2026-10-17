@@ -54,13 +54,12 @@ public class Updater
         if ((exitCode = Extract(extractPath)) != 0)
             throw new MessageException(i18N.Translate($"7za unexpectedly exited. ({exitCode})"));
 
-        // update archive file must have a top-level directory "Hatch"
-        var updateDirectory = Path.Combine(extractPath, "Hatch");
+        // Update archives use the product abbreviation as their top-level directory.
+        var updateDirectory = Path.Combine(extractPath, Constants.ShortName);
         if (!Directory.Exists(updateDirectory))
             throw new MessageException(i18N.Translate("Update file top-level directory not exist"));
 
-        // {_tempDirectory}/extract/Hatch/Hatch.exe
-        var updateMainProgramFilePath = Path.Combine(updateDirectory, "Hatch.exe");
+        var updateMainProgramFilePath = Path.Combine(updateDirectory, Constants.ExecutableName);
         if (!File.Exists(updateMainProgramFilePath))
             throw new MessageException(i18N.Translate($"Update file main program not exist"));
 

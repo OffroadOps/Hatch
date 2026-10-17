@@ -1,15 +1,16 @@
 ﻿using System.Reflection;
 using System.Runtime.InteropServices;
+using Hatch;
 using Hatch.Controllers;
 
 // 有关程序集的一般信息由以下
 // 控制。更改这些特性值可修改
 // 与程序集关联的信息。
 [assembly: AssemblyTitle(UpdateChecker.Name)]
-[assembly: AssemblyDescription("")]
+[assembly: AssemblyDescription(Constants.ProductName)]
 [assembly: AssemblyConfiguration("")]
 [assembly: AssemblyCompany("")]
-[assembly: AssemblyProduct(UpdateChecker.Name)]
+[assembly: AssemblyProduct(Constants.ProductName)]
 [assembly: AssemblyCopyright(UpdateChecker.Copyright)]
 [assembly: AssemblyTrademark("")]
 [assembly: AssemblyCulture("")]

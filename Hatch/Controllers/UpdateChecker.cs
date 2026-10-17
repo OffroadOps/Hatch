@@ -13,7 +13,7 @@ public static class UpdateChecker
     public const string Owner = @"OffroadOps";
     public const string Repo = @"Hatch";
 
-    public const string Name = @"Hatch";
+    public const string Name = Constants.ShortName;
     public const string Copyright = @"Copyright © 2026 OffroadOps";
 
     public const string AssemblyVersion = @"2.0.0";

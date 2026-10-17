@@ -237,7 +237,7 @@
             //
             this.RemoveHatchFirewallRulesToolStripMenuItem.Name = "RemoveHatchFirewallRulesToolStripMenuItem";
             this.RemoveHatchFirewallRulesToolStripMenuItem.Size = new System.Drawing.Size(243, 22);
-            this.RemoveHatchFirewallRulesToolStripMenuItem.Text = "Remove Hatch Firewall Rules";
+            this.RemoveHatchFirewallRulesToolStripMenuItem.Text = "Remove NPGA Firewall Rules";
             this.RemoveHatchFirewallRulesToolStripMenuItem.Click += new System.EventHandler(this.RemoveHatchFirewallRulesToolStripMenuItem_Click);
             //
             // AboutToolStripMenuItem
@@ -560,7 +560,7 @@
             // NotifyIcon
             //
             this.NotifyIcon.ContextMenuStrip = this.NotifyMenu;
-            this.NotifyIcon.Text = "Hatch";
+            this.NotifyIcon.Text = "NPGA";
             this.NotifyIcon.Visible = true;
             this.NotifyIcon.MouseDoubleClick += new System.Windows.Forms.MouseEventHandler(this.NotifyIcon_MouseDoubleClick);
             //
@@ -666,7 +666,7 @@
             this.MaximizeBox = false;
             this.Name = "MainForm";
             this.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen;
-            this.Text = "Hatch";
+            this.Text = "NPGA";
             this.FormClosing += new System.Windows.Forms.FormClosingEventHandler(this.MainForm_FormClosing);
             this.Load += new System.EventHandler(this.MainForm_Load);
             this.MenuStrip.ResumeLayout(false);

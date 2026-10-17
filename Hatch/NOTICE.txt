@@ -2,7 +2,7 @@ This program comes with ABSOLUTELY NO WARRANTY.
 This is free software, and you are welcome to redistribute it under certain conditions.
 Copyright (c) 2019 AmazingDM and Contributors
 
-Libraries used by Hatch and inherited from Netch are listed below (not in order):
+Libraries used by NPGA and inherited from Netch are listed below (not in order):
 Copyright (c) .NET Foundation and Contributors(@dotnet): .NET (MIT)
 Copyright (c) Microsoft Corporation(@microsoft): CsWin32 (MIT)
 Copyright (c) Microsoft Corporation(@microsoft): Microsoft.VisualStudio.Threading (MIT)
