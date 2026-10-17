@@ -11,7 +11,6 @@ fn run() -> anyhow::Result<()> {
     let mut screenshot = None;
     let mut diagnostics = false;
     let mut parent = None;
-    let mut install_driver = false;
     let mut view = "connect".to_owned();
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -34,7 +33,6 @@ fn run() -> anyhow::Result<()> {
                     })?))
             }
             "--diagnostics" => diagnostics = true,
-            "--install-driver" => install_driver = true,
             "--view" => {
                 view = args
                     .next()
@@ -60,9 +58,6 @@ fn run() -> anyhow::Result<()> {
         npga::platform::wait_for_parent(pid)?;
     }
     let paths = RuntimePaths::resolve(&std::env::current_exe()?, root, data);
-    if install_driver {
-        return npga::runtime::install_driver(&paths);
-    }
     if diagnostics {
         println!(
             "NPGA Rust 3.0.0\n运行目录：{}\n数据目录：{}",

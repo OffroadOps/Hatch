@@ -1,5 +1,7 @@
 # NPGA - 使用说明 | User Guide
 
+> 历史文档：本说明描述已冻结的 2.0.x C# 版本（NPGA.exe）的使用方法与包结构，保留在此仅作历史参考；Rust 主线版请见 [npga-rust/README.md](../npga-rust/README.md)。
+
 [English](#english) | [中文](#中文)
 
 ---

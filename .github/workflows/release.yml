@@ -2,10 +2,10 @@ name: NPGA Release CI
 
 # A tagged release publishes the Rust client (mainline) only. The runtime
 # bundle is assembled from the pinned cores in build.dependencies.json plus
-# the audited native components tracked in runtime-native/ and Storage/
-# (Tools/AssembleRuntime.ps1). The frozen C# build chain moved to an external
-# archive (refactor/DECISIONS.md ADR-007); it is no longer part of the release
-# path, and NPGA.zip / NPGASetup.exe remain only in historical releases.
+# the shared assets tracked in Storage/ (Tools/AssembleRuntime.ps1). The frozen
+# C# build chain moved to an external archive (refactor/DECISIONS.md ADR-007);
+# it is no longer part of the release path, and NPGA.zip / NPGASetup.exe
+# remain only in historical releases.
 on:
   push:
     tags:

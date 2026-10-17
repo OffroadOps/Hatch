@@ -3,8 +3,8 @@ name: NPGA CI
 # Mainline: the Rust client (npga-rust) is the only product tree in this
 # repository (refactor/DECISIONS.md ADR-001). The frozen C# build chain moved
 # to an external archive (ADR-007); the release runtime bundle is now
-# assembled from the pinned cores in build.dependencies.json plus the audited
-# components tracked in runtime-native/ and Storage/ (Tools/AssembleRuntime.ps1).
+# assembled from the pinned cores in build.dependencies.json plus the shared
+# assets tracked in Storage/ (Tools/AssembleRuntime.ps1).
 on:
   push:
     branches: [main]

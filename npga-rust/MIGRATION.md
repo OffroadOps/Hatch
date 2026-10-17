@@ -10,10 +10,10 @@
 | 配置和节点 | C# 类型鉴别 JSON、DPAPI、各协议模型 | serde + 保留未知字段，兼容 Type/Hostname/Port 等字段 |
 | 分享和订阅 | ShareLink 与 SubscriptionUtil | Rust URI/Base64 解析，事务替换，以 SubscriptionId 关联节点 |
 | 核心启动 | Guard / XrayController / SingBoxController | Rust 子进程、配置检查、Job 对象、并发日志读取、取消和退出回收 |
-| 进程模式 | NFController → Redirector.bin / nfapi.dll / netfilter2 | Rust 动态 FFI，按原生源码使用 BOOL/i32 与 void 返回类型，复用原生组件 |
+| 进程模式 | NFController → Redirector.bin / nfapi.dll / netfilter2 | sing-box TUN + `process_name` 路由（ADR-002）；Redirector/netfilter2 组件已退役（Phase 2，2026-10-17） |
 | TUN | C# RouteHelper + tun2socks，手动管理路由 | sing-box TUN，复用 Wintun；按原 CIDR 配置 route_address/route_exclude_address |
 | 网络共享 | PcapController → pcap2socks / Npcap | Rust 进程控制，原共享模式参数、显式网卡设备名 |
-| DNS | aiodns、TUN 配置和 Redirector DNS | TUN 使用 sing-box DNS hijack；进程模式使用 Redirector DNS 配置 |
+| DNS | aiodns、TUN 配置和 Redirector DNS | sing-box DNS hijack（进程模式按进程作用域生效） |
 
 C# 可直接恢复类型、方法和事件逻辑，是当前逆向门槛较低的主要原因。改为 Rust 原生机器码可以移除托管元数据；第三方核心继续独立分发，也便于校验和升级。此重构没有设计不可靠的客户端加密壳或假定 Rust 不可逆向。
 
@@ -39,19 +39,19 @@ Rust 版是独立客户端，目前不能宣称与原版每一项辅助功能完
 
 | 项目 | 状态与原因 |
 | --- | --- |
-| 进程/TUN/网络共享真实连接 | 已接入启动和清理链路，配置已校验；尚需在管理员环境、有效服务器和目标游戏中完成验证。进程模式另有 TUN 后端可选（`ProcessEngine=tun`，见下） |
+| 进程/TUN/网络共享真实连接 | 已接入启动和清理链路，配置已校验；进程模式 TUN 后端已在管理员环境实测 11/11（见下）；TUN/网络共享仍需在有效服务器和目标应用中完成验证 |
 | SSR | 可以迁移/分享；固定 Xray 不支持原生 SSR，明确拒绝连接 |
 | SS SIP003 插件 | 保存参数，明确拒绝连接；需要单独实现插件进程及适配 |
 | 旧 h2/quic/XTLS | 固定 Xray 的旧配置不能自动等同于新传输；明确拒绝，不静默忽略 |
 | Hysteria2 证书指纹 | 保存参数，明确拒绝连接，尚未映射校验字段 |
-| 流量监控 | 五种路由模式统一经核心 stats API 显示（Xray `api`/`stats`、sing-box `clash_api`）；进程模式另有 Redirector 计数兜底 |
+| 流量监控 | 五种路由模式统一经核心 stats API 显示（Xray `api`/`stats`、sing-box `clash_api`） |
 | 多语言界面 | 界面目前为简体中文；节点/模式数据与旧配置兼容 |
 | 快捷配置、NAT/STUN、IP 归属地、测速下载 | **已迁移**：连接页「连接诊断」提供 NAT 类型（经 SOCKS 的 RFC 5389 三测试）、出口 IP 归属地（内置 mmdb）、网络测速（经本地 HTTP 代理） |
 | 自动更新 | **已迁移**：关于页「检查更新」查询 GitHub Releases、比较版本、解析校验和表 |
 | TUNTAP 旧地址/网关/掩码 | 保留原字段；新 TUN 采用独立地址，由 sing-box 管理，无需原手动路由工具 |
 | 强制结束后的恢复 | Job 会终止受管核心；系统代理在下次启动恢复，不能保证崩溃瞬间恢复注册表 |
 
-以上差异在客户端、说明和错误信息中显式体现。发布包继续包含原生库和固定核心，不能将主 EXE 的 Rust 重写解释为 C++ 驱动或 Go 代理核心也改写成 Rust。
+以上差异在客户端、说明和错误信息中显式体现。发布包继续包含固定版本核心（与 Wintun 等第三方组件），不能将主 EXE 的 Rust 重写解释为代理核心也改写成 Rust。
 
 ## 2026-10-14：主线收敛与功能补齐
 
@@ -67,17 +67,22 @@ Rust 版是独立客户端，目前不能宣称与原版每一项辅助功能完
 
 ## 2026-10-15：进程模式 TUN 后端（实验）与 CI 收敛
 
-- **进程模式可切到 sing-box TUN**（ADR-006；2026-10-17 起为默认）：高级设置新增「进程模式后端」开关，写入设置项 `ProcessEngine`：
-  - `tun`（默认）：sing-box TUN + `process_name` 路由，DNS 劫持只对受管进程生效，未列进程直连；
-  - `redirector`（可回退）：现有 netfilter2 驱动 + Redirector.bin 路径。
+- **进程模式切到 sing-box TUN**（ADR-006；2026-10-17 起为唯一后端）：sing-box TUN + `process_name` 路由，DNS 劫持只对受管进程生效，未列进程直连；高级设置中的「进程模式后端」开关（`ProcessEngine`）随 Phase 2 移除。
 - **规则兼容性**：旧模式的 C++ 正则进程规则会自动转换为精确进程名（`^game\.exe$` → `game.exe`）；
   含通配/分组/路径的规则无法在 TUN 后端表达，运行日志会列出条数与被跳过的规则，全部不可转换时直接报错。
 - **验证状态（2026-10-17 更新）**：生成的 TUN 进程配置经真实 sing-box 1.13.14 校验通过；
   管理员环境按 `refactor/verify/tun-process/README.md` 实测 11/11 全过（进程匹配 Handle 走 proxy / Bypass 直连、
-  DNS 劫持、停止清理），默认值已切到 `tun`；UDP 游戏流量场景未单独覆盖，建议 Phase 2 前用真实游戏补测。
+  DNS 劫持、停止清理），随后默认值切到 `tun` 并在 Phase 2 移除 Redirector；UDP 游戏流量场景未单独覆盖，建议发布前用真实游戏补测。
 - **运行时装配**：`Tools/FetchPinnedCores.ps1` 可按 `build.dependencies.json` 下载并校验核心，
-  组装最小运行时用于测试（CI 已采用）；`Tools/AssembleRuntime.ps1` 进一步加入 `Storage/` 资产与
-  `runtime-native/` 审计二进制（ADR-007，2026-10-17），`build-rust.ps1` 已完全脱离 C# 构建链。
+  组装最小运行时用于测试（CI 已采用）；`Tools/AssembleRuntime.ps1` 进一步加入 `Storage/mode` 资产
+  （ADR-007，2026-10-17），`build-rust.ps1` 已完全脱离 C# 构建链；Redirector/nfapi/nfdriver 已于
+  Phase 2 从装配与打包清单移除。
+
+## 2026-10-17：Phase 2 — Redirector/netfilter2 退役
+
+- 删除 `runtime.rs` 的 Redirector 动态 FFI、驱动安装路径与启动器 `--install-driver`；进程模式只保留 sing-box TUN 后端。
+- 删除 `install-driver.ps1`、`runtime-native/`（Redirector.bin、nfapi.dll、SHA256SUMS.txt）与 `Storage/nfdriver.sys`。
+- `Tools/AssembleRuntime.ps1` 与 `build-rust.ps1` 的必需组件与打包白名单同步移除遗留项；发布包不再包含内核驱动与原生转发组件。
 
 ## 参考
 

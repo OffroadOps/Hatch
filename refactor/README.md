@@ -13,7 +13,7 @@ refactor/
 ├── DECISIONS.md              架构决策记录（ADR）
 ├── PHASE-1-CHECKLIST.md      第一阶段任务清单与进度
 └── verify/
-    └── tun-process/          sing-box TUN + process_name 替代 Redirector 的验证资产
+    └── tun-process/          sing-box TUN + process_name 替代 Redirector 的验证资产（已通过，2026-10-17）
         ├── README.md         验证步骤与通过标准
         ├── tun-process.json  最小可验证配置模板
         └── verify.ps1        自动化验证脚本（管理员运行）

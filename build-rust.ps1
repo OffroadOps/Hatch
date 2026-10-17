@@ -34,7 +34,7 @@ if (-not $RuntimePath) {
 }
 if (-not $RuntimePath) { throw 'Pass -RuntimePath pointing to an existing runtime (assemble one with Tools/AssembleRuntime.ps1) or an NPGA package with audited native libraries and pinned proxy cores.' }
 $taskRuntime = (Resolve-Path -LiteralPath $RuntimePath).Path
-foreach ($taskRequired in @('bin\xray.exe','bin\sing-box.exe','bin\wintun.dll','bin\nfdriver.sys','bin\pcap2socks.exe','Redirector.bin','nfapi.dll','mode')) {
+foreach ($taskRequired in @('bin\xray.exe','bin\sing-box.exe','bin\wintun.dll','bin\pcap2socks.exe','mode')) {
     if (-not (Test-Path -LiteralPath (Join-Path $taskRuntime $taskRequired))) { throw "Runtime component missing: $taskRequired" }
 }
 
@@ -74,16 +74,15 @@ if (Test-Path -LiteralPath $taskBundle) {
 }
 New-Item -ItemType Directory -Path (Join-Path $taskBundle 'bin') -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $taskCrate 'target\release\NPGA-Rust.exe') -Destination $taskBundle -Force
-foreach ($taskName in @('xray.exe','sing-box.exe','wintun.dll','nfdriver.sys','pcap2socks.exe','GeoLite2-Country.mmdb')) {
+foreach ($taskName in @('xray.exe','sing-box.exe','wintun.dll','pcap2socks.exe','GeoLite2-Country.mmdb')) {
     Copy-Item -LiteralPath (Join-Path $taskRuntime "bin\$taskName") -Destination (Join-Path $taskBundle 'bin') -Force
 }
-foreach ($taskName in @('Redirector.bin','nfapi.dll')) { Copy-Item -LiteralPath (Join-Path $taskRuntime $taskName) -Destination $taskBundle -Force }
 Copy-Item -LiteralPath (Join-Path $taskRuntime 'mode') -Destination $taskBundle -Recurse -Force
 Copy-Item -LiteralPath (Join-Path $taskWorkspace 'LICENSE') -Destination $taskBundle -Force
-foreach ($taskName in @('README.md','MIGRATION.md','install-driver.ps1')) { Copy-Item -LiteralPath (Join-Path $taskCrate $taskName) -Destination $taskBundle -Force }
+foreach ($taskName in @('README.md','MIGRATION.md')) { Copy-Item -LiteralPath (Join-Path $taskCrate $taskName) -Destination $taskBundle -Force }
 
 # Package a whitelist; never include existing settings, credentials, logs or runtime configs.
-$taskWhitelist = @('NPGA-Rust.exe','Redirector.bin','nfapi.dll','LICENSE','README.md','MIGRATION.md','install-driver.ps1','bin','mode')
+$taskWhitelist = @('NPGA-Rust.exe','LICENSE','README.md','MIGRATION.md','bin','mode')
 $taskFiles = foreach ($taskName in $taskWhitelist) {
     $taskPath = Join-Path $taskBundle $taskName
     if ((Get-Item -LiteralPath $taskPath).PSIsContainer) { Get-ChildItem -LiteralPath $taskPath -File -Recurse }

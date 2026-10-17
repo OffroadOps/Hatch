@@ -23,7 +23,7 @@
 ## 1.3 TUN 进程路由验证（ADR-002）✅（2026-10-17 实测 11/11）
 
 - [x] `verify/tun-process/` 配置模板（`sing-box check` 通过）+ 验证脚本 + 通过标准
-- [x] 产品侧实现（ADR-006）：`core_config::tun_process()` + `ProcessEngine` 开关（2026-10-17 起默认 `tun`，UI 可回退 `redirector`）
+- [x] 产品侧实现（ADR-006）：`core_config::tun_process()` + `ProcessEngine` 开关（2026-10-17 起默认 `tun`；回退开关随 Phase 2 移除）
 - [x] 规则转换 `process_names()`：正则→精确进程名，无法转换的显式上报
 - [x] 真实核心校验：`process_tun_config_validates_against_real_sing_box` 通过
 - [x] 管理员环境实测：进程匹配（Handle 走 proxy / Bypass 直连，clash API `process_path` 匹配）
@@ -31,7 +31,7 @@
 - [ ] 实测：UDP 游戏流量（本轮脚本仅覆盖 TCP，建议 Phase 2 前用真实游戏场景补测）
 - [x] 实测：停止后清理（网卡/路由）
 - [x] 通过后把 `ProcessEngine` 默认值改为 `tun`，标记 ADR-002 Accepted（2026-10-17）
-- [ ] 进入 Phase 2 删除 Redirector/netfilter2（归档侧源码与主仓库 `runtime-native/`、`Storage/nfdriver.sys`、`install-driver.ps1` 一并退役）
+- [x] 进入 Phase 2 删除 Redirector/netfilter2（2026-10-17 完成：`runtime.rs` Redirector 路径与 `--install-driver`、`install-driver.ps1`、`runtime-native/`、`Storage/nfdriver.sys` 均已移除；归档侧源码保持冻结不动）
 
 ## 1.4 工程收敛 ✅（Rust 侧完成）
 
@@ -39,10 +39,10 @@
       C# 作业由 `dorny/paths-filter` 判定冻结树变更后运行（push 与 pull_request 均生效），手动触发时始终运行
 - [x] `release.yml`：新增 Rust 打包作业，tag 发布同时产出 `NPGA-Rust.zip`
 - [x] `Tools/FetchPinnedCores.ps1`：按清单下载 + SHA256 校验组装最小运行时（CI 与本地共用）
-- [x] `install-driver.ps1` 标注为遗留组件
+- [x] `install-driver.ps1` 标注为遗留组件（Phase 2 已删除）
 - [x] build-rust.ps1 摆脱对 C# 包的依赖（ADR-007，2026-10-17）：C# 构建链移出仓库至独立归档
       `D:\netch.plus-archive`，运行时由 `Tools/AssembleRuntime.ps1` 装配（固定版本核心 + Storage 资产 +
-      `runtime-native/` 审计二进制）
+      `runtime-native/` 审计二进制；后者随 Phase 2 移除）
 
 ## 验证记录（2026-10-17）
 

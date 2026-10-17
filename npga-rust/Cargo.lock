@@ -1755,7 +1755,6 @@ dependencies = [
  "eframe",
  "image",
  "ipnet",
- "libloading 0.8.9",
  "reqwest",
  "serde",
  "serde_json",

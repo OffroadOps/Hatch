@@ -82,9 +82,6 @@ impl RuntimePaths {
             "bin/xray.exe",
             "bin/sing-box.exe",
             "bin/wintun.dll",
-            "Redirector.bin",
-            "nfapi.dll",
-            "bin/nfdriver.sys",
             "bin/pcap2socks.exe",
         ]
         .into_iter()
@@ -751,7 +748,6 @@ struct Session {
     /// Index of the node this session uses (may differ from the user's choice
     /// when automatic selection picked another node).
     node_index: usize,
-    redirector: Option<Redirector>,
     proxy: Option<SystemProxy>,
     /// Core stats backend (Clash API / Xray CLI) for the traffic display.
     stats: Option<StatsPoller>,
@@ -852,7 +848,6 @@ impl Session {
         let mut session = Self {
             core: node.core().into(),
             node_index: settings.selected_node,
-            redirector: None,
             proxy: None,
             stats,
             children: vec![child],
@@ -874,42 +869,36 @@ impl Session {
                 let mode = mode
                     .filter(|m| m.kind == RouteKind::Process)
                     .context("请选择进程模式")?;
-                if settings.process_engine() == "tun" {
-                    // ADR-002: sing-box TUN with process_name routing replaces
-                    // Redirector + netfilter2. Default since 2026-10-17; the
-                    // verification assets in refactor/verify/tun-process passed
-                    // 11/11.
-                    let (handle, unconvertible) = core_config::process_names(&mode.handle);
-                    if !unconvertible.is_empty() {
-                        let _ = events.send(Event::Log(format!(
-                            "[进程模式] {} 条规则无法转换为精确进程名，已跳过：{}",
-                            unconvertible.len(),
-                            unconvertible.join("、")
-                        )));
-                    }
-                    if handle.is_empty() {
-                        bail!(
-                            "TUN 进程模式只支持精确进程名（如 ^game\\.exe$），当前模式没有可用规则；请改用旧进程模式或修改模式规则"
-                        );
-                    }
-                    let mut config =
-                        core_config::tun_process(settings, mode, &server.ip().to_string())?;
-                    config["log"]["level"] = json!("info");
-                    let file = session._configs.write("tun-process.json", &config)?;
-                    let executable = paths.bin("sing-box.exe")?;
-                    check_core(&executable, &file, paths, events, node, cancel)?;
-                    let child = ManagedChild::spawn(
-                        &executable,
-                        &run_args("sing-box.exe", &file),
-                        &paths.root,
-                        events,
-                        node,
-                    )?;
-                    session.children.push(child);
-                    session.children.last_mut().unwrap().started(cancel)?;
-                } else {
-                    session.redirector = Some(Redirector::start(paths, settings, mode)?);
+                // ADR-002: sing-box TUN with process_name routing replaced the
+                // Redirector + netfilter2 path (Phase 2 removal, 2026-10-17).
+                let (handle, unconvertible) = core_config::process_names(&mode.handle);
+                if !unconvertible.is_empty() {
+                    let _ = events.send(Event::Log(format!(
+                        "[进程模式] {} 条规则无法转换为精确进程名，已跳过：{}",
+                        unconvertible.len(),
+                        unconvertible.join("、")
+                    )));
                 }
+                if handle.is_empty() {
+                    bail!(
+                        "进程模式只支持精确进程名（如 ^game\\.exe$），当前模式没有可用规则；请修改模式规则"
+                    );
+                }
+                let mut config =
+                    core_config::tun_process(settings, mode, &server.ip().to_string())?;
+                config["log"]["level"] = json!("info");
+                let file = session._configs.write("tun-process.json", &config)?;
+                let executable = paths.bin("sing-box.exe")?;
+                check_core(&executable, &file, paths, events, node, cancel)?;
+                let child = ManagedChild::spawn(
+                    &executable,
+                    &run_args("sing-box.exe", &file),
+                    &paths.root,
+                    events,
+                    node,
+                )?;
+                session.children.push(child);
+                session.children.last_mut().unwrap().started(cancel)?;
             }
             RouteKind::Tun => {
                 let mut config = core_config::tun(settings, mode, &server.ip().to_string())?;
@@ -966,19 +955,11 @@ impl Session {
             .any(|c| c.child.try_wait().is_ok_and(|s| s.is_some()))
     }
     fn traffic(&self) -> Option<(u64, u64)> {
-        // Prefer the core's own counters (all modes); the Redirector count is a
-        // fallback when the stats API is unreachable.
-        if let Some(stats) = &self.stats
-            && let Some(traffic) = stats.traffic()
-        {
-            return Some(traffic);
-        }
-        self.redirector.as_ref().map(Redirector::traffic)
+        self.stats.as_ref().and_then(|stats| stats.traffic())
     }
 }
 impl Drop for Session {
     fn drop(&mut self) {
-        self.redirector.take();
         if let Some(proxy) = self.proxy.take()
             && let Err(e) = proxy.restore()
         {
@@ -987,53 +968,6 @@ impl Drop for Session {
             )));
         }
         self.children.clear();
-    }
-}
-
-/// Explicit installation entry point; never called by diagnostics or connection tests.
-pub fn install_driver(paths: &RuntimePaths) -> Result<()> {
-    #[cfg(windows)]
-    unsafe {
-        if windows_sys::Win32::UI::Shell::IsUserAnAdmin() == 0 {
-            bail!("安装驱动需要管理员权限");
-        }
-        use libloading::os::windows::{
-            LOAD_LIBRARY_SEARCH_DEFAULT_DIRS, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR,
-            Library as WinLibrary,
-        };
-        let library: libloading::Library = WinLibrary::load_with_flags(
-            paths.root.join("Redirector.bin"),
-            LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS,
-        )?
-        .into();
-        let register: unsafe extern "C" fn(*const u16) -> i32 = *library.get(b"aio_register\0")?;
-        let driver = PathBuf::from(std::env::var_os("SystemRoot").context("SystemRoot 未设置")?)
-            .join("System32/drivers/netfilter2.sys");
-        let copied = if !driver.exists() {
-            let bytes = fs::read(paths.bin("nfdriver.sys")?)?;
-            let mut target = fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&driver)?;
-            target.write_all(&bytes)?;
-            target.sync_all()?;
-            true
-        } else {
-            false
-        };
-        let name: Vec<u16> = "netfilter2".encode_utf16().chain(Some(0)).collect();
-        if register(name.as_ptr()) == 0 {
-            if copied {
-                let _ = fs::remove_file(&driver);
-            }
-            bail!("注册 netfilter2 驱动失败");
-        }
-        Ok(())
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = paths;
-        bail!("驱动仅支持 Windows");
     }
 }
 
@@ -1225,155 +1159,4 @@ pub fn latency(node: &Node) -> (Option<u128>, &'static str) {
         })
     });
     (millis, "TCP")
-}
-
-type DialFn = unsafe extern "C" fn(i32, *const u16) -> i32;
-type InitFn = unsafe extern "C" fn() -> i32;
-type FreeFn = unsafe extern "C" fn();
-type CountFn = unsafe extern "C" fn() -> u64;
-struct Redirector {
-    _library: libloading::Library,
-    free: FreeFn,
-    up: CountFn,
-    down: CountFn,
-}
-impl Redirector {
-    fn start(paths: &RuntimePaths, settings: &Settings, mode: &Mode) -> Result<Self> {
-        #[cfg(not(windows))]
-        {
-            let _ = (paths, settings, mode);
-            bail!("进程加速只支持 Windows");
-        }
-        #[cfg(windows)]
-        unsafe {
-            let driver =
-                PathBuf::from(std::env::var_os("SystemRoot").context("SystemRoot 未设置")?)
-                    .join("System32/drivers/netfilter2.sys");
-            if !driver.is_file() {
-                bail!("netfilter2 驱动未安装，请在管理员终端运行随包的 install-driver.ps1");
-            }
-            // Load the audited library and its sibling dependencies from an absolute directory only.
-            use libloading::os::windows::{
-                LOAD_LIBRARY_SEARCH_DEFAULT_DIRS, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR,
-                Library as WinLibrary,
-            };
-            let library: libloading::Library = WinLibrary::load_with_flags(
-                paths.root.join("Redirector.bin"),
-                LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS,
-            )?
-            .into();
-            let dial: DialFn = *library.get(b"aio_dial\0")?;
-            let init: InitFn = *library.get(b"aio_init\0")?;
-            let free: FreeFn = *library.get(b"aio_free\0")?;
-            let up: CountFn = *library.get(b"aio_getUP\0")?;
-            let down: CountFn = *library.get(b"aio_getDL\0")?;
-            let set = |name: i32, value: &str| -> Result<()> {
-                if value.contains('\0') {
-                    bail!("Redirector 参数包含 NUL");
-                }
-                let wide: Vec<u16> = value.encode_utf16().chain(Some(0)).collect();
-                if dial(name, wide.as_ptr()) == 0 {
-                    bail!("Redirector 拒绝参数 {name}，请检查模式规则");
-                }
-                Ok(())
-            };
-            set(16, "")?;
-            for (name, key, fallback) in [
-                (0, "FilterLoopback", false),
-                (1, "FilterIntranet", true),
-                (2, "FilterParent", false),
-                (3, "FilterICMP", false),
-                (4, "FilterTCP", true),
-                (5, "FilterUDP", true),
-                (6, "FilterDNS", true),
-                (8, "HandleOnlyDNS", true),
-                (9, "DNSProxy", true),
-            ] {
-                let value = mode
-                    .options
-                    .get(if key == "DNSProxy" {
-                        "dnsProxy".to_owned()
-                    } else {
-                        key.chars()
-                            .enumerate()
-                            .map(|(i, c)| if i == 0 { c.to_ascii_lowercase() } else { c })
-                            .collect::<String>()
-                    })
-                    .filter(|v| !v.is_null())
-                    .cloned()
-                    .unwrap_or_else(|| settings.defaults_for("Redirector", key, json!(fallback)));
-                set(
-                    name,
-                    if value.as_bool().unwrap_or(fallback) {
-                        "true"
-                    } else {
-                        "false"
-                    },
-                )?;
-            }
-            set(
-                7,
-                &settings
-                    .defaults_for("Redirector", "ICMPDelay", json!(10))
-                    .to_string(),
-            )?;
-            let dns = mode.options["dnsHost"]
-                .as_str()
-                .map(str::to_owned)
-                .unwrap_or_else(|| {
-                    settings
-                        .defaults_for("Redirector", "DNSHost", json!("1.1.1.1:53"))
-                        .as_str()
-                        .unwrap_or("1.1.1.1:53")
-                        .into()
-                });
-            let dns: SocketAddr = dns.parse().context("Redirector DNS 需要 IP:端口")?;
-            set(10, &dns.ip().to_string())?;
-            set(11, &dns.port().to_string())?;
-            set(12, &settings.local_address)?;
-            set(13, &settings.socks_port.to_string())?;
-            set(14, "")?;
-            set(15, "")?;
-            for rule in &mode.bypass {
-                set(18, rule.trim_start_matches('!'))?;
-            }
-            for rule in &mode.handle {
-                set(17, rule)?;
-            }
-            // Avoid proxying our own cores and creating a recursive SOCKS connection.
-            let escaped: String = paths
-                .root
-                .to_string_lossy()
-                .chars()
-                .flat_map(|c| {
-                    if "\\.^$|?*+()[]{}".contains(c) {
-                        vec!['\\', c]
-                    } else {
-                        vec![c]
-                    }
-                })
-                .collect();
-            set(18, &format!("^{escaped}\\\\"))?;
-            if init() == 0 {
-                free();
-                bail!("Redirector 初始化失败，请检查管理员权限和驱动版本");
-            }
-            Ok(Self {
-                _library: library,
-                free,
-                up,
-                down,
-            })
-        }
-    }
-    fn traffic(&self) -> (u64, u64) {
-        unsafe { ((self.up)(), (self.down)()) }
-    }
-}
-impl Drop for Redirector {
-    fn drop(&mut self) {
-        unsafe {
-            (self.free)();
-        }
-    }
 }

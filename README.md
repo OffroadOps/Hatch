@@ -243,7 +243,7 @@ GPL-3.0 许可证 - 详见 [LICENSE](LICENSE)
 
 ### Rust 原生客户端
 
-Rust 客户端位于 [`npga-rust/`](npga-rust/README.md)，采用 ToDesk 风格的蓝白侧栏界面，兼容旧节点配置，并复用原生 Redirector、Xray 和 sing-box。运行 `./Tools/AssembleRuntime.ps1` 装配运行时，再运行 `./build-rust.ps1` 生成独立便携包。已完成能力、验证记录与兼容性边界见 [`MIGRATION.md`](npga-rust/MIGRATION.md)。
+Rust 客户端位于 [`npga-rust/`](npga-rust/README.md)，采用 ToDesk 风格的蓝白侧栏界面，兼容旧节点配置，内置固定版本的 Xray 与 sing-box（进程模式走 sing-box TUN，不依赖内核驱动）。运行 `./Tools/AssembleRuntime.ps1` 装配运行时，再运行 `./build-rust.ps1` 生成独立便携包。已完成能力、验证记录与兼容性边界见 [`MIGRATION.md`](npga-rust/MIGRATION.md)。
 
 **该仓库是唯一主线**：新功能、新界面、发布包都以 Rust 版为准。功能对齐情况见
 [`npga-rust/MIGRATION.md`](npga-rust/MIGRATION.md)，已补齐流量统计、自动更新、NAT 类型、

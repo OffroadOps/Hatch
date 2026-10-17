@@ -1181,19 +1181,7 @@ impl App {
                         ui.checkbox(&mut self.draft.startup, "登录 Windows 后启动");
                         ui.end_row();
                         ui.label("进程模式后端");
-                        let mut use_tun = self.draft.process_engine() == "tun";
-                        if ui
-                            .checkbox(
-                                &mut use_tun,
-                                "使用 sing-box TUN 进程路由（默认，免装 netfilter2 驱动）",
-                            )
-                            .changed()
-                        {
-                            self.draft.legacy.insert(
-                                "ProcessEngine".into(),
-                                serde_json::json!(if use_tun { "tun" } else { "redirector" }),
-                            );
-                        }
+                        ui.label("sing-box TUN（进程名路由，无需 netfilter2 驱动）");
                         ui.end_row();
                     });
             });

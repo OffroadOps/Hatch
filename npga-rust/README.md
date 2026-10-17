@@ -1,6 +1,6 @@
 # NPGA Rust
 
-NPGA 的 Rust 原生 Windows 客户端。主程序无 .NET / WebView 依赖；UI、配置、订阅、协议参数生成、核心进程管理和 Windows 系统代理控制均由 Rust 实现。网络协议交给项目现有的固定版本 Xray/sing-box；进程过滤默认走 sing-box TUN（`process_name` 路由），旧 C++ Redirector + 驱动路径可在高级设置回退。
+NPGA 的 Rust 原生 Windows 客户端。主程序无 .NET / WebView 依赖；UI、配置、订阅、协议参数生成、核心进程管理和 Windows 系统代理控制均由 Rust 实现。网络协议交给项目现有的固定版本 Xray/sing-box；进程过滤走 sing-box TUN（`process_name` 路由），不依赖内核驱动。
 
 ## 使用
 
@@ -14,11 +14,11 @@ NPGA 的 Rust 原生 Windows 客户端。主程序无 .NET / WebView 依赖；UI
 | --- | --- |
 | 本地代理 | 提供 SOCKS5 和 HTTP 端口，默认 9995 / 2802 |
 | 系统代理 | 修改当前用户的 Windows 系统代理，停止时恢复原值；异常退出的恢复记录会在下次启动处理 |
-| 进程加速 | 默认 sing-box TUN 进程路由（`process_name`），需要管理员权限；可在高级设置回退到旧 Redirector/netfilter2 驱动 |
+| 进程加速 | sing-box TUN 进程路由（`process_name`），需要管理员权限，无需额外驱动 |
 | 全局 TUN | 使用 sing-box + Wintun，支持原版 CIDR 路由规则，需要管理员权限 |
 | 网络共享 | 调用 pcap2socks，需要 Npcap 及正确的设备名 |
 
-「以管理员重启」会调用 Windows UAC。默认的 TUN 进程后端不需要额外驱动；仅当回退到旧 Redirector 后端时才需要驱动，可在管理员 PowerShell 中运行 `./install-driver.ps1`（遗留组件，Phase 2 退役）。开发和测试过程不自动安装驱动。
+「以管理员重启」会调用 Windows UAC。进程模式使用 sing-box TUN，不需要安装任何驱动。
 
 关闭窗口默认收起到系统托盘；托盘可打开主界面、停止加速和退出。退出释放受管核心、过滤器、临时配置和系统代理。Windows Job 对象负责终止受管进程树；程序不会为了释放端口杀死其他应用。
 
@@ -36,7 +36,7 @@ NPGA 的 Rust 原生 Windows 客户端。主程序无 .NET / WebView 依赖；UI
 ./build-rust.ps1 -RuntimePath D:/NPGA
 ```
 
-默认查找本项目已构建的 `release-npga/NPGA`、`release-net10/Hatch` 等运行时目录，复制其原生组件，不触发 .NET 构建；也可先用 `Tools/AssembleRuntime.ps1 -RuntimeRoot .release-runtime` 装配运行时（固定版本核心 + `Storage/` 资产 + `runtime-native/` 审计二进制，SHA256 校验，完全不需要 C# 构建链），再以 `-RuntimePath .release-runtime` 打包。输出 `release-rust/NPGA-Rust/NPGA-Rust.exe`、便携 ZIP 和 SHA256 清单。打包严格排除用户配置、日志和临时核心配置。
+默认查找本项目已构建的 `release-npga/NPGA`、`release-net10/Hatch` 等运行时目录，复制其核心组件，不触发 .NET 构建；也可先用 `Tools/AssembleRuntime.ps1 -RuntimeRoot .release-runtime` 装配运行时（固定版本核心 + `Storage/` 资产，SHA256 校验，完全不需要 C# 构建链），再以 `-RuntimePath .release-runtime` 打包。输出 `release-rust/NPGA-Rust/NPGA-Rust.exe`、便携 ZIP 和 SHA256 清单。打包严格排除用户配置、日志和临时核心配置。
 
 在 `npga-rust` 目录中单独开发：
 
