@@ -90,14 +90,16 @@ Write-Host "`n[2/5] 本地 CONNECT sink 已启动 (127.0.0.1:18081)" -Foreground
 
 # ---------- 3. 启动 sing-box ----------
 Write-Host "`n[3/5] 启动 sing-box（TUN 模式）" -ForegroundColor Cyan
-$logFile = JoinPath $env:TEMP "npga-tun-verify.log"
+$logFile = Join-Path $env:TEMP "npga-tun-verify.log"
+$logErrFile = Join-Path $env:TEMP "npga-tun-verify.err.log"
 if (Test-Path $logFile) { Remove-Item $logFile -Force }
-$sing = Start-Process -FilePath $SingBox -ArgumentList "run", "-c", $Config -WindowStyle Hidden -PassThru -RedirectStandardOutput $logFile
+if (Test-Path $logErrFile) { Remove-Item $logErrFile -Force }
+$sing = Start-Process -FilePath $SingBox -ArgumentList "run", "-c", $Config -WindowStyle Hidden -PassThru -RedirectStandardOutput $logFile -RedirectStandardError $logErrFile
 $started = $false
 foreach ($i in 1..40) {
     Start-Sleep -Milliseconds 250
     if ($sing.HasExited) { break }
-    if (Select-String -Path $logFile -Pattern "sing-box started" -Quiet) { $started = $true; break }
+    if (Select-String -Path $logFile,$logErrFile -Pattern "sing-box started" -Quiet -ErrorAction SilentlyContinue) { $started = $true; break }
 }
 Write-Check "sing-box 启动" $started
 
@@ -112,18 +114,18 @@ if ($started) {
 
 # ---------- 4. 进程匹配测试 ----------
 Write-Host "`n[4/5] 进程匹配（Handle / Bypass）" -ForegroundColor Cyan
-$curl = JoinPath $env:SystemRoot "System32\curl.exe"
-$testDir = JoinPath $env:TEMP "npga-tun-test"
+$curl = Join-Path $env:SystemRoot "System32\curl.exe"
+$testDir = Join-Path $env:TEMP "npga-tun-test"
 $null = New-Item -ItemType Directory -Path $testDir -Force
-$handleExe = JoinPath $testDir "npga-handle-test.exe"
-$bypassExe = JoinPath $testDir "npga-bypass-test.exe"
+$handleExe = Join-Path $testDir "npga-handle-test.exe"
+$bypassExe = Join-Path $testDir "npga-bypass-test.exe"
 Copy-Item $curl $handleExe -Force
 Copy-Item $curl $bypassExe -Force
 
 function Test-ProcessRule([string]$Exe, [string]$ExpectChain, [int]$Seconds = 12) {
     $sawProxy = $false
     $sawProcess = $false
-    $out = JoinPath $env:TEMP "npga-tun-sink.bin"
+    $out = Join-Path $env:TEMP "npga-tun-sink.bin"
     $proc = Start-Process -FilePath $Exe -ArgumentList "-s", "--max-time", "$($Seconds + 4)", "http://cachefly.cachefly.net/10mb.test", "-o", $out -WindowStyle Hidden -PassThru
     $deadline = (Get-Date).AddSeconds($Seconds)
     while ((Get-Date) -lt $deadline -and -not $proc.HasExited) {
@@ -157,7 +159,7 @@ try {
     $null = Resolve-DnsName -Name "www.mozilla.org" -Type A -ErrorAction SilentlyContinue -DnsOnly
 } catch { }
 Start-Sleep -Milliseconds 500
-$hijacked = Select-String -Path $logFile -Pattern "hijacked dns query" -Quiet
+$hijacked = Select-String -Path $logFile,$logErrFile -Pattern "hijacked dns query" -Quiet -ErrorAction SilentlyContinue
 Write-Check "DNS 查询被劫持（hijack-dns 生效）" $hijacked
 
 # 优雅停止（Ctrl+C 语义不存在于控制台子进程，先 taskkill 不带 /F）
