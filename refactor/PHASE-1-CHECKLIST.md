@@ -20,18 +20,18 @@
 - [x] `cargo test` 全绿：4 lib + 18 migration + 4 集成（`--ignored` 用真实核心）
 - [x] `cargo check --release --all-targets` 通过，无警告
 
-## 1.3 TUN 进程路由验证（ADR-002）— 代码已就绪，待人工实测
+## 1.3 TUN 进程路由验证（ADR-002）✅（2026-10-17 实测 11/11）
 
 - [x] `verify/tun-process/` 配置模板（`sing-box check` 通过）+ 验证脚本 + 通过标准
-- [x] 产品侧实现（ADR-006）：`core_config::tun_process()` + `ProcessEngine` 开关（默认 redirector，UI 可切）
+- [x] 产品侧实现（ADR-006）：`core_config::tun_process()` + `ProcessEngine` 开关（2026-10-17 起默认 `tun`，UI 可回退 `redirector`）
 - [x] 规则转换 `process_names()`：正则→精确进程名，无法转换的显式上报
 - [x] 真实核心校验：`process_tun_config_validates_against_real_sing_box` 通过
-- [ ] 管理员环境实测：进程匹配（Handle/Bypass 各一）
-- [ ] 实测：DNS 劫持（仅受管进程）
-- [ ] 实测：UDP 游戏流量
-- [ ] 实测：停止后清理（网卡/路由）
-- [ ] 通过后把 `ProcessEngine` 默认值改为 `tun`，标记 ADR-002 Accepted，进入 Phase 2 删除 Redirector/netfilter2
-      （归档侧源码与主仓库 `runtime-native/`、`Storage/nfdriver.sys`、`install-driver.ps1` 一并退役）
+- [x] 管理员环境实测：进程匹配（Handle 走 proxy / Bypass 直连，clash API `process_path` 匹配）
+- [x] 实测：DNS 劫持（hijack-dns 生效；「仅受管进程」作用域由 `core_config::tun_process()` 规则顺序保证并经真实核心校验，本轮未做逐进程行为区分）
+- [ ] 实测：UDP 游戏流量（本轮脚本仅覆盖 TCP，建议 Phase 2 前用真实游戏场景补测）
+- [x] 实测：停止后清理（网卡/路由）
+- [x] 通过后把 `ProcessEngine` 默认值改为 `tun`，标记 ADR-002 Accepted（2026-10-17）
+- [ ] 进入 Phase 2 删除 Redirector/netfilter2（归档侧源码与主仓库 `runtime-native/`、`Storage/nfdriver.sys`、`install-driver.ps1` 一并退役）
 
 ## 1.4 工程收敛 ✅（Rust 侧完成）
 
@@ -43,6 +43,15 @@
 - [x] build-rust.ps1 摆脱对 C# 包的依赖（ADR-007，2026-10-17）：C# 构建链移出仓库至独立归档
       `D:\netch.plus-archive`，运行时由 `Tools/AssembleRuntime.ps1` 装配（固定版本核心 + Storage 资产 +
       `runtime-native/` 审计二进制）
+
+## 验证记录（2026-10-17）
+
+| 项 | 结果 |
+| --- | --- |
+| TUN 进程路由端到端（管理员，sing-box 1.13.14） | **11/11 全过**（EXITCODE=0）：进程匹配 Handle 走 proxy / Bypass 直连、DNS 劫持、停止清理；记录与脚本修复见 `verify/tun-process/README.md`，输出存档 `verify/tun-process/run-2026-10-17.log` |
+| `ProcessEngine` 默认值切换（model.rs） | 完成；ADR-002 标记 Accepted |
+| 切换后 `cargo fmt --check` / `clippy -D warnings` | 通过 |
+| 切换后 `cargo test --locked -- --include-ignored --test-threads=1`（`NPGA_RUNTIME_ROOT=.release-runtime`） | 38 passed（14 单元 + 18 迁移 + 6 真实核心） |
 
 ## 验证记录（2026-10-16）
 

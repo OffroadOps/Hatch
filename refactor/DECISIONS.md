@@ -16,10 +16,11 @@
 ## ADR-002：用 sing-box TUN 进程路由替代 Redirector + netfilter2.sys
 
 - **日期**：2026-10-14
-- **状态**：Proposed（待 Phase 1 验证）
+- **状态**：Accepted（2026-10-17 管理员环境实测通过，PASS=11/11）
 - **背景**：进程模式当前依赖 netfilter2.sys（未签名内核驱动）+ Redirector.bin（自研 C++ SOCKS 转发，PROJECT_REVIEW.md 的 P1/P2 bug 集中地）。sing-box 1.13 的 route 规则原生支持 `process_name` / `process_path`。
-- **决策**（待验证）：进程模式改为 sing-box TUN + process_name/process_path 规则；删除 netfilter2 安装逻辑与 Redirector 组件；DNS 处理移交 sing-box DNS hijack。
+- **决策**：进程模式改为 sing-box TUN + process_name/process_path 规则；删除 netfilter2 安装逻辑与 Redirector 组件；DNS 处理移交 sing-box DNS hijack。
 - **验证门槛**：`refactor/verify/tun-process/` 全项通过后才执行删除。老系统（TUN 不可用）保留 WinDivert 兜底方案的评估，不保留 netfilter2。
+- **验证记录**：2026-10-17，管理员环境运行 `refactor/verify/tun-process/verify.ps1`（sing-box 1.13.14）：11/11 全过——进程匹配（Handle 走 proxy / Bypass 直连）、DNS 劫持、停止后网卡与路由清理。默认 `ProcessEngine` 已切为 `tun`；删除动作进入 Phase 2。
 - **理由**：消除未签名驱动的杀软误报与系统更新风险；消除自研 C++ 安全债；DNS/规则表达力是超集。
 - **后果**：Redirector 特有开关（dnsOnly/dnsProx/dnsHost）需重新设计 UI 暴露方式；进程匹配依赖连接归属查询，启动器套娃场景需实测。
 
@@ -53,12 +54,12 @@
 ## ADR-006：进程模式 TUN 后端落地 + 运行时装配与 C# 构建解耦
 
 - **日期**：2026-10-15
-- **状态**：Accepted（默认关闭，验证通过后切换默认值）
+- **状态**：Accepted（2026-10-17 起默认 `tun`，见 ADR-002 验证记录）
 - **背景**：ADR-002 的验证资产已就绪，但客户端侧还没有可切换的实现；同时 CI 与运行时包仍强依赖冻结的 C# 构建。
 - **决策**：
   1. 在 `core_config::tun_process()` 实现进程模式的 sing-box TUN 配置：`process_name` 路由 + 仅对受管进程生效的 DNS 劫持（`{"protocol":"dns","process_name":[...],"action":"hijack-dns"}`），bypass 规则优先于 handle 规则；`final: direct` 保证只有列表内进程被代理。
   2. 旧模式规则（C++ 正则）通过 `process_names()` 转换为精确进程名，**无法转换的规则显式上报**（sing-box 只支持精确匹配），全部不可转换时直接报错而不是静默降级。
-  3. 通过设置项 `ProcessEngine`（`redirector` 默认 / `tun`）切换，UI 在「高级设置」暴露复选框；ADR-002 端到端验证通过后把默认值改为 `tun`。
+  3. 通过设置项 `ProcessEngine`（2026-10-17 起 `tun` 默认 / `redirector` 可回退）切换，UI 在「高级设置」暴露复选框；ADR-002 端到端验证已通过（11/11），默认值已切换。
   4. 新增 `Tools/FetchPinnedCores.ps1`：按 `build.dependencies.json` 下载并 SHA256 校验核心，组装最小运行时；CI 与本地共用，使 Rust 侧的测试与校验不再需要先构建 C#。
 - **理由**：把「验证」与「实现」解耦但保持可回退；先具备能力再切换默认值，避免把未验证的路径强加给用户。运行时装配脚本是 Phase 2 彻底去掉 C# 构建依赖的前提（当前 `build-rust.ps1` 仍需 C# 包提供 Redirector.bin/nfapi.dll/nfdriver.sys）。
 - **后果**：

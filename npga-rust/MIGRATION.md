@@ -67,17 +67,17 @@ Rust 版是独立客户端，目前不能宣称与原版每一项辅助功能完
 
 ## 2026-10-15：进程模式 TUN 后端（实验）与 CI 收敛
 
-- **进程模式可切到 sing-box TUN**（ADR-006）：高级设置新增「进程模式后端」开关，写入设置项 `ProcessEngine`：
-  - `redirector`（默认）：现有 netfilter2 驱动 + Redirector.bin 路径；
-  - `tun`：sing-box TUN + `process_name` 路由，DNS 劫持只对受管进程生效，未列进程直连。
+- **进程模式可切到 sing-box TUN**（ADR-006；2026-10-17 起为默认）：高级设置新增「进程模式后端」开关，写入设置项 `ProcessEngine`：
+  - `tun`（默认）：sing-box TUN + `process_name` 路由，DNS 劫持只对受管进程生效，未列进程直连；
+  - `redirector`（可回退）：现有 netfilter2 驱动 + Redirector.bin 路径。
 - **规则兼容性**：旧模式的 C++ 正则进程规则会自动转换为精确进程名（`^game\.exe$` → `game.exe`）；
   含通配/分组/路径的规则无法在 TUN 后端表达，运行日志会列出条数与被跳过的规则，全部不可转换时直接报错。
-- **验证状态**：生成的 TUN 进程配置经真实 sing-box 1.13.14 校验通过；
-  端到端（进程匹配、UDP 游戏流量、停止清理）仍需在管理员环境按 `refactor/verify/tun-process/README.md` 实测，
-  通过后才会把默认值切到 `tun` 并删除 Redirector/netfilter2。
+- **验证状态（2026-10-17 更新）**：生成的 TUN 进程配置经真实 sing-box 1.13.14 校验通过；
+  管理员环境按 `refactor/verify/tun-process/README.md` 实测 11/11 全过（进程匹配 Handle 走 proxy / Bypass 直连、
+  DNS 劫持、停止清理），默认值已切到 `tun`；UDP 游戏流量场景未单独覆盖，建议 Phase 2 前用真实游戏补测。
 - **运行时装配**：`Tools/FetchPinnedCores.ps1` 可按 `build.dependencies.json` 下载并校验核心，
-  组装最小运行时用于测试（CI 已采用）。`build-rust.ps1` 仍需要 C# 包提供 Redirector.bin/nfapi.dll/nfdriver.sys，
-  待 Phase 2 移除这些遗留组件后即可完全脱离 C# 构建。
+  组装最小运行时用于测试（CI 已采用）；`Tools/AssembleRuntime.ps1` 进一步加入 `Storage/` 资产与
+  `runtime-native/` 审计二进制（ADR-007，2026-10-17），`build-rust.ps1` 已完全脱离 C# 构建链。
 
 ## 参考
 

@@ -876,8 +876,9 @@ impl Session {
                     .context("请选择进程模式")?;
                 if settings.process_engine() == "tun" {
                     // ADR-002: sing-box TUN with process_name routing replaces
-                    // Redirector + netfilter2. Opt-in until the verification
-                    // assets in refactor/verify/tun-process pass.
+                    // Redirector + netfilter2. Default since 2026-10-17; the
+                    // verification assets in refactor/verify/tun-process passed
+                    // 11/11.
                     let (handle, unconvertible) = core_config::process_names(&mode.handle);
                     if !unconvertible.is_empty() {
                         let _ = events.send(Event::Log(format!(

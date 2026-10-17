@@ -1,6 +1,6 @@
 # NPGA Rust
 
-NPGA 的 Rust 原生 Windows 客户端。主程序无 .NET / WebView 依赖；UI、配置、订阅、协议参数生成、核心进程管理和 Windows 系统代理控制均由 Rust 实现。网络协议交给项目现有的固定版本 Xray/sing-box；进程过滤复用 C++ Redirector 和签名驱动。
+NPGA 的 Rust 原生 Windows 客户端。主程序无 .NET / WebView 依赖；UI、配置、订阅、协议参数生成、核心进程管理和 Windows 系统代理控制均由 Rust 实现。网络协议交给项目现有的固定版本 Xray/sing-box；进程过滤默认走 sing-box TUN（`process_name` 路由），旧 C++ Redirector + 驱动路径可在高级设置回退。
 
 ## 使用
 
@@ -14,15 +14,15 @@ NPGA 的 Rust 原生 Windows 客户端。主程序无 .NET / WebView 依赖；UI
 | --- | --- |
 | 本地代理 | 提供 SOCKS5 和 HTTP 端口，默认 9995 / 2802 |
 | 系统代理 | 修改当前用户的 Windows 系统代理，停止时恢复原值；异常退出的恢复记录会在下次启动处理 |
-| 进程加速 | 使用原版游戏/进程模式与 C++ Redirector，需要管理员权限及 netfilter2 驱动 |
+| 进程加速 | 默认 sing-box TUN 进程路由（`process_name`），需要管理员权限；可在高级设置回退到旧 Redirector/netfilter2 驱动 |
 | 全局 TUN | 使用 sing-box + Wintun，支持原版 CIDR 路由规则，需要管理员权限 |
 | 网络共享 | 调用 pcap2socks，需要 Npcap 及正确的设备名 |
 
-「以管理员重启」会调用 Windows UAC。进程过滤的驱动首次安装，在管理员 PowerShell 中运行 `./install-driver.ps1`；此脚本调用 Rust 安装入口，保留已安装的驱动。开发和测试过程不自动安装驱动。
+「以管理员重启」会调用 Windows UAC。默认的 TUN 进程后端不需要额外驱动；仅当回退到旧 Redirector 后端时才需要驱动，可在管理员 PowerShell 中运行 `./install-driver.ps1`（遗留组件，Phase 2 退役）。开发和测试过程不自动安装驱动。
 
 关闭窗口默认收起到系统托盘；托盘可打开主界面、停止加速和退出。退出释放受管核心、过滤器、临时配置和系统代理。Windows Job 对象负责终止受管进程树；程序不会为了释放端口杀死其他应用。
 
-当前实时流量统计来自 Redirector，仅进程模式有真实数据。其他模式显示「—」；延迟是 TCP 连通性，Hysteria2 使用 ICMP，不能等同于 UDP 隧道质量。
+实时流量统计经核心自带接口（Xray `api`/`stats`、sing-box `clash_api`）按秒轮询，各路由模式统一显示，接口不可用时显示「—」；延迟是 TCP 连通性，Hysteria2 使用 ICMP，不能等同于 UDP 隧道质量。
 
 ## 构建
 

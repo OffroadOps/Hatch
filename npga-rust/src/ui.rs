@@ -1185,7 +1185,7 @@ impl App {
                         if ui
                             .checkbox(
                                 &mut use_tun,
-                                "使用 sing-box TUN 进程路由（实验，免装 netfilter2 驱动）",
+                                "使用 sing-box TUN 进程路由（默认，免装 netfilter2 驱动）",
                             )
                             .changed()
                         {

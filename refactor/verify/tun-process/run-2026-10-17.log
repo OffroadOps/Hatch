@@ -1,0 +1,28 @@
+
+=== NPGA TUN 进程路由验证 ===
+
+
+[1/5] sing-box check
+  [PASS] sing-box 接受配置（自动路由/进程规则/DNS 劫持字段均有效）
+
+[2/5] 本地 CONNECT sink 已启动 (127.0.0.1:18081)
+
+[3/5] 启动 sing-box（TUN 模式）
+  [PASS] sing-box 启动
+  [PASS] TUN 网卡 NPGA-TEST 已创建
+  [PASS] 自动路由已下发（48 条）
+
+[4/5] 进程匹配（Handle / Bypass）
+  [PASS] Handle 进程连接在 clash API 可见（process_path 匹配）
+  [PASS] Handle 进程流量走 proxy outbound
+  [PASS] Bypass 进程连接在 clash API 可见（process_path 匹配）
+  [PASS] Bypass 进程流量未走 proxy outbound
+
+[5/5] DNS 劫持与停止清理
+  [PASS] DNS 查询被劫持（hijack-dns 生效）
+  [PASS] 停止后 TUN 网卡已移除
+  [PASS] 停止后路由已清理
+
+=== 结果: PASS=11 FAIL=0 ===
+全部通过：sing-box TUN + process_name 可替代 Redirector/netfilter2（ADR-002 可标记 Accepted）
+EXITCODE=0

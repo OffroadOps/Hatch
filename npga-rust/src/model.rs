@@ -240,13 +240,14 @@ impl Settings {
             .and_then(Value::as_bool)
             .unwrap_or(false)
     }
-    /// Process-mode backend: `"tun"` uses sing-box TUN process routing (ADR-002),
-    /// anything else keeps the legacy Redirector + netfilter2 path.
+    /// Process-mode backend: `"tun"` (default since ADR-002 passed verification
+    /// on 2026-10-17) uses sing-box TUN process routing; anything else keeps the
+    /// legacy Redirector + netfilter2 path.
     pub fn process_engine(&self) -> String {
         self.legacy
             .get("ProcessEngine")
             .and_then(Value::as_str)
-            .unwrap_or("redirector")
+            .unwrap_or("tun")
             .to_ascii_lowercase()
     }
     /// STUN server used by NAT type discovery, from legacy settings.

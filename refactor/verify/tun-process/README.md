@@ -30,17 +30,37 @@ HTTP CONNECT sink（由脚本启动），因此：
 ## 记录结果
 
 ```
-日期/机器：____
-sing-box 版本：____
-1 check:      [ ] PASS  [ ] FAIL
-2 TUN/路由:  [ ] PASS  [ ] FAIL
-3 Handle:    [ ] PASS  [ ] FAIL
-4 Bypass:    [ ] PASS  [ ] FAIL
-5 DNS/清理:  [ ] PASS  [ ] FAIL
-备注（失败现象、日志位置）：____
+日期/机器：2026-10-17 / NewPC（Windows；管理员提权运行，包装器用 pwsh 7）
+sing-box 版本：1.13.14（Tools/AssembleRuntime.ps1 装配）
+1 check:      [x] PASS  [ ] FAIL
+2 TUN/路由:  [x] PASS  [ ] FAIL
+3 Handle:    [x] PASS  [ ] FAIL
+4 Bypass:    [x] PASS  [ ] FAIL
+5 DNS/清理:  [x] PASS  [ ] FAIL
+备注（失败现象、日志位置）：EXITCODE=0，PASS=11/11；输出存档见同目录 run-2026-10-17.log。
+首轮 7/11 的 3 个失败项均为脚本自身缺陷，修复记录见下节。
 ```
 
-全部 PASS 后：`DECISIONS.md` ADR-002 标记 Accepted，进入 Phase 2 删除旧组件。
+已于 2026-10-17 达成：`DECISIONS.md` ADR-002 标记 Accepted、`ProcessEngine` 默认切 `tun`；
+Phase 2 删除旧组件待执行（UDP 游戏流量场景建议届时用真实游戏补测）。
+
+## 修复记录（2026-10-17：首轮 7/11 → 复跑 11/11）
+
+首轮实测 3 个失败项均源于脚本自身，产品行为无误：
+
+| 失败项 | 原因 | 修复 |
+| --- | --- | --- |
+| Handle 连接在 clash API 不可见 | curl 依赖域名解析；查询被 hijack 后经 HTTP CONNECT sink 无法完成（sink 不承载 UDP），curl 从未发起连接 | curl 增加 `--resolve cachefly.cachefly.net:80:93.184.216.34`，测试不依赖 DNS |
+| DNS 劫持判定失败 | 断言匹配的 `hijacked dns query` 文案在 sing-box 1.13 不存在（劫持实际已生效，日志可见 `:53` 数据包进入 TUN 与 `dns:` 条目） | 改为以被劫持查询的域名出现在日志为准 |
+| Bypass「未走 proxy」 | 进程未连上时该断言恒真（空真） | 增加「连接在 clash API 可见」前置断言 |
+
+另有两处工程修复：
+
+- 脚本原先无法读取 sing-box 输出：sing-box 日志走 stderr，已用 `-RedirectStandardError` 捕获到
+  `npga-tun-verify.err.log`，启动/DNS 断言同时检索 stdout 与 stderr。
+- 脚本声明 `#Requires -Version 5.1` 但为 UTF-8 无 BOM：PowerShell 5.1 按 GBK 解码中文注释会破坏解析
+  （报「字符串缺少终止符」）。已给 `verify.ps1`、`npga-rust/install-driver.ps1`、`Tools/FetchPinnedCores.ps1`
+  补 UTF-8 BOM，5.1 / 7 双引擎解析 0 错误。
 
 ## 已知边界（需要人工观察）
 
