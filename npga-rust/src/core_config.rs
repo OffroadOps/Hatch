@@ -201,8 +201,8 @@ pub fn process_names(rules: &[String]) -> (Vec<String>, Vec<String>) {
 }
 
 /// Builds the TUN configuration for process mode (ADR-002): only the listed
-/// processes use the proxy, everything else stays direct. Used when the
-/// `ProcessEngine` legacy setting is `tun` (the default since 2026-10-17).
+/// processes use the proxy, everything else stays direct. The only process-mode
+/// backend since the Redirector/netfilter2 path was retired (Phase 2, 2026-10-17).
 pub fn tun_process(settings: &Settings, mode: &Mode, server_ip: &str) -> Result<Value> {
     if mode.kind != RouteKind::Process {
         bail!("请选择进程模式");
