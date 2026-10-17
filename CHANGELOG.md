@@ -6,7 +6,7 @@ All notable changes to Hatch will be documented in this file.
 
 ### Changed
 - **架构收敛（ADR-001）**：Rust 客户端 `npga-rust/` 成为唯一主线；.NET/WinForms 客户端 `Hatch/` 冻结于 2.0.x，
-  仅接受安全修复。冻结说明见 `Hatch/FROZEN.md`，决策记录见 `refactor/DECISIONS.md`。
+  仅接受安全修复。冻结说明见 `Hatch/FROZEN.md`（随归档移出，现位于 `D:\netch.plus-archive`），决策记录见 `refactor/DECISIONS.md`。
 - 重构工作区 `refactor/` 建立：计划、决策记录（ADR）、sing-box TUN 进程路由验证资产。
 - 重构评估报告 `REFACTORING_PROPOSAL.md`：现状剖析、雷神加速器架构实证对比、八条核心意见、四阶段路线图。
 
@@ -28,12 +28,22 @@ All notable changes to Hatch will be documented in this file.
 - C# 作业的触发条件改用 `dorny/paths-filter` 判定变更路径：此前的 commit 列表判断只看 `modified`，
   漏掉新增/删除文件，且 `pull_request` 事件下该条件恒为假，冻结树在合并前完全得不到构建验证。
 - `npga-rust/install-driver.ps1` 标注为遗留组件（ADR-002 通过后随驱动一并退役）。
+- **归档（ADR-007，2026-10-17）**：Hatch（.NET/WinForms）完整构建链——`Hatch/`、`Tests/`、`Redirector/`、
+  `RouteHelper/`、`Other/`（含 aiodns）、`RedirectorTester/`、`Tools/HatchIpProbe/`、`installer/`、
+  `Hatch.sln`、`build.ps1`、`common.props`、`global.json`、`NuGet.Config`——整体移出主仓库，
+  归档到独立目录 `D:\netch.plus-archive`（独立 Git 仓库）。主仓库只保留 Rust 主线与共享资产
+  （`Storage/`、`build.dependencies.json`）。
+- 运行时改为装配式供应链：新增 `Tools/AssembleRuntime.ps1`（固定版本核心 + Storage 资产 +
+  `runtime-native/` 审计二进制，SHA256 校验）；`build-rust.ps1` 不再需要 C# 构建产物。
+  新增 `runtime-native/`（`Redirector.bin`、`nfapi.dll` 与校验表，来源及更新流程见其 README）。
+- CI/发布：删除 C# 作业；`build.yml` 新增打包冒烟作业；`release.yml` 只发布 `NPGA-Rust.zip`。
 
 ### Fixed (npga-rust)
 - 新增统计端口（SOCKS 端口 +3/+4）在启动前预占校验，冲突时给出明确错误。
 - `core_integration` 自动选路用例补齐 SOCKS5 握手；此前直接写入载荷，xray 以非法 SOCKS 版本丢弃连接，
   用例必然超时失败，导致 `cargo test --include-ignored` 门禁无法通过。
 - `tests/core_integration.rs` 恢复 `cargo fmt --check` 通过，CI 格式门禁不再失败。
+- 便携包补齐 `GeoLite2-Country.mmdb`：此前打包白名单未包含该文件，发布包内 IP 归属地不可用。
 
 ### Changed (2.0.x 维护，C# 版冻结前)
 - Renamed the product to NPGA (Netch.Plus Game Accelerator), including executable, installer, UI, and release assets; retained import compatibility with Hatch share links.

@@ -2,10 +2,11 @@
 
 [English](#english) | [中文](#中文)
 
-> **主线状态（2026-10-14）**：本项目已完成架构收敛，**Rust 原生客户端 [`npga-rust/`](npga-rust/) 是唯一活跃主线**。
-> 原 .NET/WinForms 客户端 `Hatch/` 已冻结（见 [`Hatch/FROZEN.md`](Hatch/FROZEN.md)），仅接受安全修复，
-> 保留作为迁移参考。重构计划与决策记录见 [`refactor/`](refactor/README.md) 与
-> [`REFACTORING_PROPOSAL.md`](REFACTORING_PROPOSAL.md)。
+> **主线状态（2026-10-17）**：本项目已完成架构收敛，**Rust 原生客户端 [`npga-rust/`](npga-rust/) 是唯一活跃主线**，
+> 也是本仓库中唯一的产品代码树。原 .NET/WinForms 客户端（Hatch 2.0.x）及其完整构建链（C#/C++/Go、
+> 安装器、`build.ps1`）已冻结并整体移出仓库，归档于独立目录 `D:\netch.plus-archive`（独立 Git 仓库，
+> 归档前状态见历史提交 `a934f42`）。重构计划与决策记录见 [`refactor/`](refactor/README.md)
+> （ADR-001 冻结、ADR-007 归档）与 [`REFACTORING_PROPOSAL.md`](REFACTORING_PROPOSAL.md)。
 
 ---
 
@@ -19,7 +20,7 @@ This project is a **continuation and enhancement** of [Netch 1.9.7](https://gith
 
 ### Features
 
-- 🚀 **High Performance**: Built with .NET 10.0 and optimized for speed
+- 🚀 **High Performance**: native Rust client shipped as a single portable executable with no .NET/WebView dependency
 - 🔒 **Multiple Protocols**: Support for Hysteria2, Shadowsocks, VMess, VLESS, Trojan, WireGuard, and more
 - 🎯 **Process Mode**: Route specific applications through proxy
 - 🌐 **TUN/TAP Mode**: System-wide proxy with advanced routing
@@ -29,14 +30,14 @@ This project is a **continuation and enhancement** of [Netch 1.9.7](https://gith
 
 ### System Requirements
 
-- Windows x64; use a Windows release supported by [.NET 10](https://github.com/dotnet/core/blob/main/release-notes/10.0/supported-os.md). Driver and proxy-core compatibility must also be checked on the target system.
-- .NET 10.0 Desktop Runtime (for framework-dependent version) or use the self-contained version
+- Windows x64. Driver and proxy-core compatibility must be checked on the target system.
+- No .NET runtime required: the client ships as a self-contained portable package (`NPGA-Rust.zip`).
 
 ### Installation
 
 1. Download the latest release from [Releases](https://github.com/OffroadOps/Hatch/releases)
 2. Extract all files to a folder
-3. Run `NPGA.exe`
+3. Run `NPGA-Rust.exe`
 
 ### Quick Start
 
@@ -46,7 +47,7 @@ This project is a **continuation and enhancement** of [Netch 1.9.7](https://gith
 
 ### Key Improvements
 
-#### Version 2.0.0 Updates
+#### Version 2.0.0 Updates (final .NET client release, now archived)
 - **About Dialog**: New menu with version information and update features
   - Display NPGA, Xray-core, and sing-box versions
   - One-click software and core updates
@@ -87,30 +88,21 @@ Modes define routing rules and are stored in the `mode/` folder:
 ### Building from Source
 
 #### Prerequisites
-- .NET SDK 10.0.401 (the version pinned by `global.json`)
-- Visual Studio 2022 Build Tools with **Desktop development with C++**
-- Go 1.25.14 and a MinGW-w64 C compiler on PATH (for `aiodns.bin`)
-- Inno Setup 6 (omit with `-SkipInstaller` for archive-only builds)
+- Windows x64, PowerShell 7, Rust 1.99.0 (pinned by `npga-rust/rust-toolchain.toml`) with Visual C++ Build Tools / Windows SDK
 
 #### Build Commands
 
 ```powershell
-# Standard build
-.\build.ps1 -Configuration Release -OutputPath release
+# Assemble the runtime bundle: pinned proxy cores + Storage assets + audited native components
+.\Tools\AssembleRuntime.ps1 -RuntimeRoot .release-runtime
 
-# The build will automatically:
-# - Run the test suite and compile NPGA (C# .NET application)
-# - Compile Redirector (C++ network redirector)
-# - Compile RouteHelper (C++ routing utilities)
-# - Build aiodns and download version-pinned dependencies with SHA256 verification
-# - Package NPGA.zip and NPGASetup.exe into the release folder
+# Build the portable package (runs tests, clippy and fmt; outputs release-rust/)
+.\build-rust.ps1 -RuntimePath .release-runtime
 ```
 
-For a local archive-only verification using the audited native binaries in `artifacts/`:
-
-```powershell
-.\build.ps1 -Configuration Release -OutputPath release -SkipNativeBuild -SkipInstaller
-```
+The frozen .NET/C++ build chain (`build.ps1`, `Hatch.sln`, the installer) is no longer part of this
+repository; it lives in the external archive `D:\netch.plus-archive` (see `refactor/DECISIONS.md`
+ADR-007) and is not required to build or release the client.
 
 ### License
 
@@ -142,7 +134,7 @@ This tool is for educational and research purposes only. Users are responsible f
 
 ### 功能特性
 
-- 🚀 **高性能**: 基于 .NET 10.0 构建，性能优化
+- 🚀 **高性能**: 原生 Rust 客户端，单文件便携，无 .NET/WebView 依赖
 - 🔒 **多协议支持**: 支持 Hysteria2、Shadowsocks、VMess、VLESS、Trojan、WireGuard 等
 - 🎯 **进程模式**: 为特定应用程序设置代理
 - 🌐 **TUN/TAP 模式**: 系统级代理，支持高级路由规则
@@ -152,14 +144,14 @@ This tool is for educational and research purposes only. Users are responsible f
 
 ### 系统要求
 
-- Windows x64；请使用 [.NET 10 支持的 Windows 版本](https://github.com/dotnet/core/blob/main/release-notes/10.0/supported-os.md)，并在目标系统验证驱动及代理核心的兼容性。
-- .NET 10.0 桌面运行时（框架依赖版本）或使用独立版本
+- Windows x64；请在目标系统验证驱动及代理核心的兼容性。
+- 不需要 .NET 运行时：客户端以自包含便携包（`NPGA-Rust.zip`）发布。
 
 ### 安装说明
 
 1. 从 [Releases](https://github.com/OffroadOps/Hatch/releases) 下载最新版本
 2. 解压所有文件到一个文件夹
-3. 运行 `NPGA.exe`
+3. 运行 `NPGA-Rust.exe`
 
 ### 快速开始
 
@@ -169,7 +161,7 @@ This tool is for educational and research purposes only. Users are responsible f
 
 ### 主要改进
 
-#### 2.0.0 版本更新
+#### 2.0.0 版本更新（.NET 客户端最后一版，现已归档）
 - **关于对话框**: 新增菜单，显示版本信息和更新功能
   - 显示 NPGA、Xray-core 和 sing-box 版本
   - 一键更新软件和核心文件
@@ -210,30 +202,20 @@ This tool is for educational and research purposes only. Users are responsible f
 ### 从源码构建
 
 #### 前置要求
-- .NET SDK 10.0.401（由 `global.json` 固定）
-- Visual Studio 2022 Build Tools，并安装“使用 C++ 的桌面开发”工作负载
-- Go 1.25.14 和 MinGW-w64 C 编译器（加入 PATH）（用于构建 `aiodns.bin`）
-- Inno Setup 6（仅构建压缩包时可传 `-SkipInstaller`）
+- Windows x64、PowerShell 7、Rust 1.99.0（由 `npga-rust/rust-toolchain.toml` 固定），以及 Visual C++ Build Tools / Windows SDK
 
 #### 构建命令
 
 ```powershell
-# 标准构建
-.\build.ps1 -Configuration Release -OutputPath release
+# 装配运行时：固定版本核心 + Storage 资产 + 审计过的原生组件
+.\Tools\AssembleRuntime.ps1 -RuntimeRoot .release-runtime
 
-# 构建将自动：
-# - 运行测试并编译 NPGA（C# .NET 应用程序）
-# - 编译 Redirector（C++ 网络重定向器）
-# - 编译 RouteHelper（C++ 路由工具）
-# - 构建 aiodns，并下载固定版本且校验 SHA256 的依赖项
-# - 在 release 文件夹生成 NPGA.zip 和 NPGASetup.exe
+# 构建便携包（自动运行测试、clippy 和 fmt；输出到 release-rust/）
+.\build-rust.ps1 -RuntimePath .release-runtime
 ```
 
-本机仅验证压缩包、复用 `artifacts/` 中已审计原生文件时：
-
-```powershell
-.\build.ps1 -Configuration Release -OutputPath release -SkipNativeBuild -SkipInstaller
-```
+原 .NET/C++ 构建链（`build.ps1`、`Hatch.sln`、安装器）已不属于本仓库，位于独立归档
+`D:\netch.plus-archive`（见 `refactor/DECISIONS.md` ADR-007），构建与发布客户端不再需要它。
 
 ### 许可证
 
@@ -255,14 +237,14 @@ GPL-3.0 许可证 - 详见 [LICENSE](LICENSE)
 
 ---
 
-**版本 | Version**: 2.0.0
+**版本 | Version**: 3.0.0 (Rust)
 **版权 | Copyright**: © 2026 OffroadOps
 **基于 | Based on**: Netch 1.9.7
 
 ### Rust 原生客户端
 
-Rust 重构位于 [`npga-rust/`](npga-rust/README.md)，采用 ToDesk 风格的蓝白侧栏界面，兼容旧节点配置，并复用原生 Redirector、Xray 和 sing-box。运行 `./build-rust.ps1` 生成独立便携包；原 .NET 构建仍可使用。已完成能力、验证记录与兼容性边界见 [`MIGRATION.md`](npga-rust/MIGRATION.md)。
+Rust 客户端位于 [`npga-rust/`](npga-rust/README.md)，采用 ToDesk 风格的蓝白侧栏界面，兼容旧节点配置，并复用原生 Redirector、Xray 和 sing-box。运行 `./Tools/AssembleRuntime.ps1` 装配运行时，再运行 `./build-rust.ps1` 生成独立便携包。已完成能力、验证记录与兼容性边界见 [`MIGRATION.md`](npga-rust/MIGRATION.md)。
 
-**该目录是本项目的主线**：新功能、新界面、发布包都以 Rust 版为准。功能对齐情况见
+**该仓库是唯一主线**：新功能、新界面、发布包都以 Rust 版为准。功能对齐情况见
 [`npga-rust/MIGRATION.md`](npga-rust/MIGRATION.md)，已补齐流量统计、自动更新、NAT 类型、
 出口归属地、网络测速等原有能力。

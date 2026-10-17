@@ -5,7 +5,8 @@ $ErrorActionPreference = 'Stop'
 $workspaceRoot = [IO.Path]::GetFullPath($PSScriptRoot)
 # Explicit allowlist: preserve release packages, native build inputs and downloads.
 $relativeTargets = @(
-    'Hatch/bin', 'Hatch/obj', 'Tests/bin', 'Tests/obj',
+    'npga-rust/target',
+    '.ci-runtime', '.release-runtime',
     '.build-cache/publish-Release',
     '.build-cache/extract-pcap2socks-59b3a2e5054c',
     '.build-cache/extract-singBox-f580782c6dd1',

@@ -31,6 +31,7 @@
 - [ ] 实测：UDP 游戏流量
 - [ ] 实测：停止后清理（网卡/路由）
 - [ ] 通过后把 `ProcessEngine` 默认值改为 `tun`，标记 ADR-002 Accepted，进入 Phase 2 删除 Redirector/netfilter2
+      （归档侧源码与主仓库 `runtime-native/`、`Storage/nfdriver.sys`、`install-driver.ps1` 一并退役）
 
 ## 1.4 工程收敛 ✅（Rust 侧完成）
 
@@ -39,7 +40,9 @@
 - [x] `release.yml`：新增 Rust 打包作业，tag 发布同时产出 `NPGA-Rust.zip`
 - [x] `Tools/FetchPinnedCores.ps1`：按清单下载 + SHA256 校验组装最小运行时（CI 与本地共用）
 - [x] `install-driver.ps1` 标注为遗留组件
-- [ ] （Phase 2）`build-rust.ps1` 摆脱对 C# 包的依赖：仍需 C# 包提供 Redirector.bin/nfapi.dll/nfdriver.sys
+- [x] build-rust.ps1 摆脱对 C# 包的依赖（ADR-007，2026-10-17）：C# 构建链移出仓库至独立归档
+      `D:\netch.plus-archive`，运行时由 `Tools/AssembleRuntime.ps1` 装配（固定版本核心 + Storage 资产 +
+      `runtime-native/` 审计二进制）
 
 ## 验证记录（2026-10-16）
 

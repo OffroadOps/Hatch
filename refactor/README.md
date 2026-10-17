@@ -28,4 +28,4 @@ refactor/
 
 - `npga-rust/` 是唯一活跃的产品代码树。
 - `Hatch/`（C#）已冻结归档，仅接受安全问题修复，不再合入新功能。
-- 本工作区不参与构建，`build.ps1` / `build-rust.ps1` 不会引用它。
+- 本工作区不参与构建，`build-rust.ps1` 不会引用它（原 `build.ps1` 已随归档移出，见 ADR-007）。

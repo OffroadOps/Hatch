@@ -20,12 +20,12 @@ else {
     $env:RUSTUP_HOME = Join-Path $taskLocalTools 'rustup'
 }
 if (-not $RuntimePath) {
-    foreach ($taskCandidate in @('release-npga\NPGA','release-net10\Hatch','release-fixed\Hatch','release\Hatch')) {
+    foreach ($taskCandidate in @('.release-runtime','release-npga\NPGA','release-net10\Hatch','release-fixed\Hatch','release\Hatch')) {
         $taskCandidatePath = Join-Path $taskWorkspace $taskCandidate
         if (Test-Path -LiteralPath (Join-Path $taskCandidatePath 'bin\xray.exe')) { $RuntimePath = $taskCandidatePath; break }
     }
 }
-if (-not $RuntimePath) { throw 'Pass -RuntimePath pointing to an existing NPGA package with audited native libraries and pinned proxy cores.' }
+if (-not $RuntimePath) { throw 'Pass -RuntimePath pointing to an existing runtime (assemble one with Tools/AssembleRuntime.ps1) or an NPGA package with audited native libraries and pinned proxy cores.' }
 $taskRuntime = (Resolve-Path -LiteralPath $RuntimePath).Path
 foreach ($taskRequired in @('bin\xray.exe','bin\sing-box.exe','bin\wintun.dll','bin\nfdriver.sys','bin\pcap2socks.exe','Redirector.bin','nfapi.dll','mode')) {
     if (-not (Test-Path -LiteralPath (Join-Path $taskRuntime $taskRequired))) { throw "Runtime component missing: $taskRequired" }
@@ -67,7 +67,7 @@ if (Test-Path -LiteralPath $taskBundle) {
 }
 New-Item -ItemType Directory -Path (Join-Path $taskBundle 'bin') -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $taskCrate 'target\release\NPGA-Rust.exe') -Destination $taskBundle -Force
-foreach ($taskName in @('xray.exe','sing-box.exe','wintun.dll','nfdriver.sys','pcap2socks.exe')) {
+foreach ($taskName in @('xray.exe','sing-box.exe','wintun.dll','nfdriver.sys','pcap2socks.exe','GeoLite2-Country.mmdb')) {
     Copy-Item -LiteralPath (Join-Path $taskRuntime "bin\$taskName") -Destination (Join-Path $taskBundle 'bin') -Force
 }
 foreach ($taskName in @('Redirector.bin','nfapi.dll')) { Copy-Item -LiteralPath (Join-Path $taskRuntime $taskName) -Destination $taskBundle -Force }

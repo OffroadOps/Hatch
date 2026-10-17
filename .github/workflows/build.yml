@@ -1,9 +1,10 @@
 name: NPGA CI
 
-# Mainline: the Rust client (npga-rust) is the only active product tree
-# (refactor/DECISIONS.md ADR-001). The frozen C# client is still built when its
-# tree changes, because it currently produces the runtime package (pinned cores
-# plus native libraries) that the Rust client ships with.
+# Mainline: the Rust client (npga-rust) is the only product tree in this
+# repository (refactor/DECISIONS.md ADR-001). The frozen C# build chain moved
+# to an external archive (ADR-007); the release runtime bundle is now
+# assembled from the pinned cores in build.dependencies.json plus the audited
+# components tracked in runtime-native/ and Storage/ (Tools/AssembleRuntime.ps1).
 on:
   push:
     branches: [main]
@@ -66,101 +67,42 @@ jobs:
           path: npga-rust/target/release/NPGA-Rust.exe
           if-no-files-found: error
 
-  # Decides whether the frozen C# tree changed. A dedicated job is needed
-  # because a job-level `if` cannot inspect the pull request file list: the
-  # legacy tree currently produces the runtime package (pinned cores plus native
-  # libraries) that the Rust client ships with, so it must be validated before a
-  # merge, not only at release time.
-  changes:
-    name: Detect frozen-tree changes
-    # workflow_dispatch has no base commit to diff against; the legacy job below
-    # always runs for it, so the filter is only needed for push/pull_request.
-    if: github.event_name != 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: read
-    outputs:
-      legacy: ${{ steps.filter.outputs.legacy }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-        with:
-          # May save a fetch roundtrip when the merge-base is within the last commits.
-          fetch-depth: 20
-
-      - name: Filter changed paths
-        id: filter
-        uses: dorny/paths-filter@v4
-        with:
-          filters: |
-            legacy:
-              - 'Hatch/**'
-              - 'Redirector/**'
-              - 'RouteHelper/**'
-              - 'Other/aiodns/**'
-              - 'Storage/**'
-              - 'Tests/**'
-              - 'installer/**'
-              - 'build.ps1'
-              - 'build.dependencies.json'
-              - 'common.props'
-              - 'global.json'
-              - 'Hatch.sln'
-              - '.github/workflows/build.yml'
-
-  legacy:
-    name: Frozen C# client (runtime package)
-    needs: changes
-    # Manual dispatch always builds; otherwise only when the frozen tree changed.
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      needs.changes.outputs.legacy == 'true'
+  package:
+    name: Runtime bundle and portable package (smoke)
     runs-on: windows-2022
+    needs: rust
     steps:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Setup .NET 10.0.401
-        uses: actions/setup-dotnet@v5
+      - name: Setup Rust 1.99.0
+        uses: dtolnay/rust-toolchain@master
         with:
-          dotnet-version: 10.0.401
-          cache: true
-          cache-dependency-path: '**/packages.lock.json'
+          toolchain: 1.99.0
 
-      - name: Setup Go
-        uses: actions/setup-go@v6
+      - name: Cache cargo
+        uses: actions/cache@v4
         with:
-          go-version: 1.25.14
-          cache-dependency-path: Other/aiodns/go.sum
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            npga-rust/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('npga-rust/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
 
-      - name: Setup MSBuild
-        uses: microsoft/setup-msbuild@v3
-
-      - name: Setup MinGW for aiodns
-        uses: msys2/setup-msys2@v2
-        with:
-          update: true
-          install: mingw-w64-x86_64-gcc
-
-      - name: Add MinGW to PATH
+      - name: Assemble runtime bundle
         shell: pwsh
-        run: '"C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append'
+        run: ./Tools/AssembleRuntime.ps1 -RuntimeRoot .release-runtime
 
-      - name: Install Inno Setup
+      - name: Build portable package (tests already ran in the rust job)
         shell: pwsh
-        run: choco install innosetup --no-progress -y
+        run: .\build-rust.ps1 -RuntimePath .release-runtime -OutputPath release-rust -SkipTests
 
-      - name: Build and test
-        shell: pwsh
-        run: .\build.ps1 -Configuration Release -OutputPath release
-
-      - name: Upload release archive
+      - name: Upload portable package
         uses: actions/upload-artifact@v7
         with:
-          name: NPGA-legacy-${{ github.sha }}
+          name: NPGA-Rust-package-${{ github.sha }}
           path: |
-            release/NPGA.zip
-            release/NPGASetup.exe
-            release/SHA256SUMS.txt
+            release-rust/NPGA-Rust.zip
+            release-rust/SHA256SUMS.txt
           if-no-files-found: error

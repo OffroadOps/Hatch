@@ -105,7 +105,7 @@ try {
                 $source = Join-Path $extract ([string]$archivePath -replace '/', '\')
             } else {
                 # Search by file name; the archive layout may add a versioned
-                # top-level directory (same semantics as build.ps1).
+                # top-level directory (same semantics as the frozen build.ps1, now in the archive).
                 $matches = @(Get-ChildItem -LiteralPath $extract -Recurse -File -Filter ([string]$archiveEntry))
                 if ($matches.Count -ne 1) {
                     throw "${name}: expected exactly one '$archiveEntry' in $fileName, found $($matches.Count)"

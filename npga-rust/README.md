@@ -36,7 +36,7 @@ NPGA 的 Rust 原生 Windows 客户端。主程序无 .NET / WebView 依赖；UI
 ./build-rust.ps1 -RuntimePath D:/NPGA
 ```
 
-默认查找本项目已构建的 `release-npga/NPGA` 或 `release-net10/Hatch`；复制其原生组件，不触发 .NET 构建。输出 `release-rust/NPGA-Rust/NPGA-Rust.exe`、便携 ZIP 和 SHA256 清单。打包严格排除用户配置、日志和临时核心配置。
+默认查找本项目已构建的 `release-npga/NPGA`、`release-net10/Hatch` 等运行时目录，复制其原生组件，不触发 .NET 构建；也可先用 `Tools/AssembleRuntime.ps1 -RuntimeRoot .release-runtime` 装配运行时（固定版本核心 + `Storage/` 资产 + `runtime-native/` 审计二进制，SHA256 校验，完全不需要 C# 构建链），再以 `-RuntimePath .release-runtime` 打包。输出 `release-rust/NPGA-Rust/NPGA-Rust.exe`、便携 ZIP 和 SHA256 清单。打包严格排除用户配置、日志和临时核心配置。
 
 在 `npga-rust` 目录中单独开发：
 

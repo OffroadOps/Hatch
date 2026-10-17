@@ -1,9 +1,11 @@
 name: NPGA Release CI
 
-# A tagged release publishes the Rust client (mainline) plus the frozen C#
-# runtime package it bundles. The C# tree is still built because it currently
-# produces the pinned cores and native libraries; see refactor/DECISIONS.md
-# ADR-001 and refactor/PHASE-1-CHECKLIST.md (1.4).
+# A tagged release publishes the Rust client (mainline) only. The runtime
+# bundle is assembled from the pinned cores in build.dependencies.json plus
+# the audited native components tracked in runtime-native/ and Storage/
+# (Tools/AssembleRuntime.ps1). The frozen C# build chain moved to an external
+# archive (refactor/DECISIONS.md ADR-007); it is no longer part of the release
+# path, and NPGA.zip / NPGASetup.exe remain only in historical releases.
 on:
   push:
     tags:
@@ -14,67 +16,8 @@ permissions:
   contents: write
 
 jobs:
-  runtime:
-    name: Runtime package (frozen C# tree)
-    runs-on: windows-2022
-    steps:
-      - name: Checkout tagged source
-        uses: actions/checkout@v7
-
-      - name: Setup .NET 10.0.401
-        uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: 10.0.401
-          cache: true
-          cache-dependency-path: '**/packages.lock.json'
-
-      - name: Setup Go
-        uses: actions/setup-go@v6
-        with:
-          go-version: 1.25.14
-          cache-dependency-path: Other/aiodns/go.sum
-
-      - name: Setup MSBuild
-        uses: microsoft/setup-msbuild@v3
-
-      - name: Setup MinGW for aiodns
-        uses: msys2/setup-msys2@v2
-        with:
-          update: true
-          install: mingw-w64-x86_64-gcc
-
-      - name: Add MinGW to PATH
-        shell: pwsh
-        run: '"C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append'
-
-      - name: Install Inno Setup
-        shell: pwsh
-        run: choco install innosetup --no-progress -y
-
-      - name: Build, test, and package
-        shell: pwsh
-        run: .\build.ps1 -Configuration Release -OutputPath release
-
-      - name: Upload runtime tree for the Rust packaging job
-        uses: actions/upload-artifact@v7
-        with:
-          name: npga-runtime
-          path: release/NPGA
-          if-no-files-found: error
-
-      - name: Upload legacy installer artifacts
-        uses: actions/upload-artifact@v7
-        with:
-          name: npga-legacy-artifacts
-          path: |
-            release/NPGA.zip
-            release/NPGASetup.exe
-            release/SHA256SUMS.txt
-          if-no-files-found: error
-
   rust-package:
     name: Rust client package (mainline)
-    needs: runtime
     runs-on: windows-2022
     steps:
       - name: Checkout tagged source
@@ -96,11 +39,9 @@ jobs:
           key: ${{ runner.os }}-cargo-release-${{ hashFiles('npga-rust/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-
 
-      - name: Download runtime tree
-        uses: actions/download-artifact@v5
-        with:
-          name: npga-runtime
-          path: .release-runtime
+      - name: Assemble runtime bundle
+        shell: pwsh
+        run: ./Tools/AssembleRuntime.ps1 -RuntimeRoot .release-runtime
 
       - name: Build Rust package (runs tests, clippy, fmt)
         shell: pwsh
@@ -120,7 +61,7 @@ jobs:
 
   publish:
     name: Publish GitHub Release
-    needs: [runtime, rust-package]
+    needs: [rust-package]
     runs-on: windows-2022
     steps:
       - name: Download all artifacts
@@ -131,7 +72,7 @@ jobs:
       - name: Generate updater-compatible release notes
         shell: pwsh
         run: |
-          $assets = Get-ChildItem artifacts -Recurse -File | Where-Object Name -In @('NPGA-Rust.zip', 'NPGA.zip', 'NPGASetup.exe')
+          $assets = Get-ChildItem artifacts -Recurse -File | Where-Object Name -In @('NPGA-Rust.zip')
           $lines = @(
             "# NPGA $env:GITHUB_REF_NAME"
             ''
@@ -157,5 +98,3 @@ jobs:
           fail_on_unmatched_files: true
           files: |
             artifacts/npga-rust-artifacts/NPGA-Rust.zip
-            artifacts/npga-legacy-artifacts/NPGA.zip
-            artifacts/npga-legacy-artifacts/NPGASetup.exe

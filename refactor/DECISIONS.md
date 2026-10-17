@@ -65,3 +65,20 @@
   - 进程模式的 DNS 语义变化：TUN 后端下 DNS 劫持按进程作用域生效，不再有 Redirector 的 dnsOnly/dnsProx 细粒度开关。
   - 正则型进程规则在 TUN 后端下不可用，UI 会提示无法转换的规则数量。
   - CI 结构：`build.yml` 的 Rust 作业为主门禁，C# 作业仅在 `Hatch/**` 变更或手动触发时运行；`release.yml` 增加 Rust 打包作业，发布同时产出 `NPGA-Rust.zip`。
+
+## ADR-007：Hatch 完整构建链移出主仓库，运行时改为装配式供应链
+
+- **日期**：2026-10-17
+- **状态**：Accepted
+- **背景**：ADR-001 冻结后 C# 源码仍留在仓库中，CI 与发布仍依赖 `build.ps1` 用 .NET/C++/Go 全链构建运行时包；Rust 打包（`build-rust.ps1`）需要该产物提供 `Redirector.bin`、`nfapi.dll`、`nfdriver.sys` 与 `mode/`。
+- **决策**：
+  1. 将 Hatch、Tests、Redirector、RouteHelper、Other（含 aiodns）、RedirectorTester、Tools/HatchIpProbe、installer、`Hatch.sln`、`build.ps1`、`common.props`、`global.json`、`NuGet.Config`、`Tools/BuildPathSafety.ps1`、`Tools/SetToolchainEnvironment.ps1` 及图标资产整体移出主仓库，归档到独立目录 `D:\netch.plus-archive`（独立 Git 仓库，导入提交记录归档前主仓库快照 `a934f42`）。
+  2. 主仓库只保留 Rust 主线与共享资产（`Storage/`、`build.dependencies.json`、`Tools/FetchPinnedCores.ps1`）。
+  3. 运行时改为装配式：新增 `Tools/AssembleRuntime.ps1` = FetchPinnedCores（固定版本核心）+ `Storage/`（nfdriver.sys、mode）+ `runtime-native/`（审计过的 `Redirector.bin`、`nfapi.dll`，SHA256 校验）。CI 与本地共用。
+  4. CI/发布：删除 C# 作业；`build.yml` 增加装配 + 打包冒烟作业；`release.yml` 只发布 `NPGA-Rust.zip`。
+- **理由**：主仓库成为单一（Rust）产品树；发布不再需要 .NET/C++/Go 工具链；消除 Phase 1.4 遗留的 `build-rust.ps1` 对 C# 构建产物的依赖。
+- **后果**：
+  - `Redirector.bin`/`nfapi.dll` 以二进制形式入库（`runtime-native/`，含 SHA256SUMS.txt）；更新需在归档目录重建后复制回来并更新校验表（流程见其 README）。它们随 ADR-002 通过、`ProcessEngine` 默认切到 `tun` 后与 Redirector 一并退役。
+  - 旧 `NPGA.zip`/`NPGASetup.exe` 安装器不再随新版本发布；历史版本资产仍保留在 GitHub Releases。
+  - C# 测试与原生 SOCKS 测试随 `Tests/` 归档，不再在 CI 运行；如需回归验证须在归档目录执行。
+  - 主仓库 Git 历史保留归档前的全部内容（`a934f42` 及之前），恢复可通过 revert 或从归档目录取回。
