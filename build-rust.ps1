@@ -15,9 +15,16 @@ if ($taskCargoCommand) { $taskCargo = $taskCargoCommand.Source }
 else {
     $taskLocalTools = Join-Path $taskWorkspace '.build-cache\rust-toolchain'
     $taskCargo = Join-Path $taskLocalTools 'cargo\bin\cargo.exe'
-    if (-not (Test-Path -LiteralPath $taskCargo)) { throw 'Install Rust 1.99.0 with rustup and Visual C++ Build Tools, then rerun build-rust.ps1.' }
-    $env:CARGO_HOME = Join-Path $taskLocalTools 'cargo'
-    $env:RUSTUP_HOME = Join-Path $taskLocalTools 'rustup'
+    if (Test-Path -LiteralPath $taskCargo) {
+        $env:CARGO_HOME = Join-Path $taskLocalTools 'cargo'
+        $env:RUSTUP_HOME = Join-Path $taskLocalTools 'rustup'
+    }
+    else {
+        # rustup's default install location; the PATH of build shells often lacks it.
+        $taskUserCargo = Join-Path $env:USERPROFILE '.cargo\bin\cargo.exe'
+        if (-not (Test-Path -LiteralPath $taskUserCargo)) { throw 'Install Rust 1.99.0 with rustup and Visual C++ Build Tools, then rerun build-rust.ps1.' }
+        $taskCargo = $taskUserCargo
+    }
 }
 if (-not $RuntimePath) {
     foreach ($taskCandidate in @('.release-runtime','release-npga\NPGA','release-net10\Hatch','release-fixed\Hatch','release\Hatch')) {
