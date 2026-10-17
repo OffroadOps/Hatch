@@ -1,4 +1,4 @@
-# 遗留组件说明：本脚本安装 netfilter2.sys（未签名内核驱动），仅用于当前的进程模式。
+﻿# 遗留组件说明：本脚本安装 netfilter2.sys（未签名内核驱动），仅用于当前的进程模式。
 # 按 refactor/DECISIONS.md ADR-002，进程模式计划改用 sing-box TUN 的 process_name 路由，
 # 该驱动与 Redirector.bin 届时一并退役。验证通过前请勿删除本脚本。
 [CmdletBinding()]

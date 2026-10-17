@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
     sing-box TUN + process_name 替代 Redirector/netfilter2 的可行性验证（ADR-002）。
