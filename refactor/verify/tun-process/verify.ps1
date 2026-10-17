@@ -126,7 +126,9 @@ function Test-ProcessRule([string]$Exe, [string]$ExpectChain, [int]$Seconds = 12
     $sawProxy = $false
     $sawProcess = $false
     $out = Join-Path $env:TEMP "npga-tun-sink.bin"
-    $proc = Start-Process -FilePath $Exe -ArgumentList "-s", "--max-time", "$($Seconds + 4)", "http://cachefly.cachefly.net/10mb.test", "-o", $out -WindowStyle Hidden -PassThru
+    # --resolve：让测试进程绕过 DNS —— CONNECT sink 无法承载 DNS（被劫持的查询会失败），
+    # 断言只需要 TUN 层面的 TCP 连接建立并由 clash API 记录进程。
+    $proc = Start-Process -FilePath $Exe -ArgumentList "-s", "--max-time", "$($Seconds + 4)", "--resolve", "cachefly.cachefly.net:80:93.184.216.34", "http://cachefly.cachefly.net/10mb.test", "-o", $out -WindowStyle Hidden -PassThru
     $deadline = (Get-Date).AddSeconds($Seconds)
     while ((Get-Date) -lt $deadline -and -not $proc.HasExited) {
         Start-Sleep -Milliseconds 400
@@ -151,7 +153,8 @@ Write-Check "Handle 进程连接在 clash API 可见（process_path 匹配）" $
 Write-Check "Handle 进程流量走 proxy outbound" $handleResult.SawChain
 
 $bypassResult = Test-ProcessRule $bypassExe "proxy"
-Write-Check "Bypass 进程流量未走 proxy outbound" (-not $bypassResult.SawChain) "bypass 进程出现了 proxy 链"
+Write-Check "Bypass 进程连接在 clash API 可见（process_path 匹配）" $bypassResult.SawProcess
+Write-Check "Bypass 进程流量未走 proxy outbound" ($bypassResult.SawProcess -and -not $bypassResult.SawChain) "bypass 进程未出现连接或出现了 proxy 链"
 
 # ---------- 5. DNS 劫持 + 清理 ----------
 Write-Host "`n[5/5] DNS 劫持与停止清理" -ForegroundColor Cyan
@@ -159,7 +162,9 @@ try {
     $null = Resolve-DnsName -Name "www.mozilla.org" -Type A -ErrorAction SilentlyContinue -DnsOnly
 } catch { }
 Start-Sleep -Milliseconds 500
-$hijacked = Select-String -Path $logFile,$logErrFile -Pattern "hijacked dns query" -Quiet -ErrorAction SilentlyContinue
+# 查询被 sing-box DNS 模块处理即证明 hijack-dns 生效。sink 无法承载 DNS，exchange 必然失败，
+# 且不同 sing-box 版本日志文案不同（1.13 无 "hijacked dns query" 字样），故以查询域名出现在日志为准。
+$hijacked = Select-String -Path $logFile,$logErrFile -Pattern "www\.mozilla\.org|hijacked dns query" -Quiet -ErrorAction SilentlyContinue
 Write-Check "DNS 查询被劫持（hijack-dns 生效）" $hijacked
 
 # 优雅停止（Ctrl+C 语义不存在于控制台子进程，先 taskkill 不带 /F）
