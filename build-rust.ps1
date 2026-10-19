@@ -27,7 +27,9 @@ else {
     }
 }
 if (-not $RuntimePath) {
-    foreach ($taskCandidate in @('.release-runtime','release-npga\NPGA','release-net10\Hatch','release-fixed\Hatch','release\Hatch')) {
+    # Only Rust-era runtimes: the C# package layouts moved to the external
+    # archive (refactor/DECISIONS.md ADR-007).
+    foreach ($taskCandidate in @('.release-runtime', 'release-rust/NPGA-Rust', 'release-npga/NPGA')) {
         $taskCandidatePath = Join-Path $taskWorkspace $taskCandidate
         if (Test-Path -LiteralPath (Join-Path $taskCandidatePath 'bin\xray.exe')) { $RuntimePath = $taskCandidatePath; break }
     }

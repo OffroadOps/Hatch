@@ -74,7 +74,8 @@ This project is a **continuation and enhancement** of [Netch 1.9.7](https://gith
 ### Configuration
 
 #### Server Configuration
-Servers are stored in `data/settings.json`. You can:
+Servers are stored in `data/rust/settings.json` (the Rust client's data directory;
+the archived 2.0.x client used `data/settings.json`). You can:
 - Import from clipboard (subscription links supported)
 - Add manually through the UI
 - Test latency with one click
@@ -188,7 +189,8 @@ This tool is for educational and research purposes only. Users are responsible f
 ### 配置说明
 
 #### 服务器配置
-服务器存储在 `data/settings.json` 文件中。你可以：
+服务器存储在 `data/rust/settings.json`（Rust 客户端的数据目录；已归档的 2.0.x 客户端使用
+`data/settings.json`）。你可以：
 - 从剪贴板导入（支持订阅链接）
 - 通过 UI 手动添加
 - 一键测试延迟
