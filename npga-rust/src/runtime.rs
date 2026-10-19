@@ -43,11 +43,13 @@ impl RuntimePaths {
             .unwrap()
             .to_owned();
         let root = override_root.unwrap_or_else(|| {
+            // Only Rust-era runtime layouts; the C# package directories moved
+            // to the external archive (refactor/DECISIONS.md ADR-007).
             [
                 exe_dir.to_owned(),
+                workspace.join("release-rust/NPGA-Rust"),
                 workspace.join("release-npga/NPGA"),
-                workspace.join("release-net10/Hatch"),
-                workspace.join("release-fixed/Hatch"),
+                workspace.join(".release-runtime"),
                 workspace.clone(),
             ]
             .into_iter()
@@ -151,7 +153,13 @@ pub enum Event {
         millis: Option<u128>,
         method: &'static str,
     },
-    Refreshed(Box<Settings>),
+    /// A subscription finished downloading. Only the nodes owned by `id` are
+    /// reported; the caller merges them into the live configuration so edits
+    /// made while the download was in flight are not lost.
+    Refreshed {
+        id: String,
+        nodes: Vec<Node>,
+    },
     Checked(String),
     Traffic {
         up: u64,
@@ -164,6 +172,7 @@ pub enum Event {
     },
     /// Automatic selection picked the node used for this connection.
     Selection {
+        index: usize,
         text: String,
     },
     /// A live connection moved to another node (index is the new node).
@@ -181,6 +190,9 @@ enum Sample {
 
 /// How often a live connection is re-probed for automatic switching.
 const MONITOR_INTERVAL: Duration = Duration::from_secs(20);
+
+/// Minimum interval between two core traffic samples.
+const TRAFFIC_INTERVAL: Duration = Duration::from_secs(1);
 
 /// Latency probe pool; results flow to the selector over the private channel.
 fn spawn_probe_pool(nodes: Vec<Node>, samples: Sender<Sample>) {
@@ -252,6 +264,10 @@ impl Worker {
                         break;
                     }
                     Ok(CommandMessage::Stop) => {
+                        // Drop any in-flight selection cycle so a pending
+                        // automatic pick cannot restart the session afterwards.
+                        pending = None;
+                        last_start = None;
                         session.take();
                         let _ = outgoing.send(Event::Stopped);
                     }
@@ -333,15 +349,25 @@ impl Worker {
                     }
                     Ok(CommandMessage::Refresh { settings, id }) => {
                         let out = outgoing.clone();
+                        let subscription_id = id.clone();
                         thread::spawn(move || {
-                            let result = settings
-                                .subscriptions
-                                .iter()
-                                .find(|s| s.id == id)
-                                .context("订阅不存在")
-                                .and_then(|s| subscription::refresh(&settings, s));
+                            // A panicking worker must still report back, or the
+                            // UI would stay stuck in its busy state.
+                            let result =
+                                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                    settings
+                                        .subscriptions
+                                        .iter()
+                                        .find(|s| s.id == id)
+                                        .context("订阅不存在")
+                                        .and_then(|s| subscription::refresh(&settings, s))
+                                }))
+                                .unwrap_or_else(|_| Err(anyhow::anyhow!("订阅刷新任务异常终止")));
                             let _ = out.send(match result {
-                                Ok(next) => Event::Refreshed(Box::new(next)),
+                                Ok(nodes) => Event::Refreshed {
+                                    id: subscription_id,
+                                    nodes,
+                                },
                                 Err(e) => Event::OperationFailed(format!("{e:#}")),
                             });
                         });
@@ -358,7 +384,15 @@ impl Worker {
                         let outgoing = outgoing.clone();
                         let paths = paths.clone();
                         thread::spawn(move || {
-                            let result = run_tool(kind, &paths, &settings);
+                            // A panicking tool must still report back, or the
+                            // diagnostic buttons would stay disabled forever.
+                            let result =
+                                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                    run_tool(kind, &paths, &settings)
+                                }))
+                                .unwrap_or_else(|_| {
+                                    Err(anyhow::anyhow!("{}工具执行异常终止", kind.label()))
+                                });
                             let _ = outgoing.send(match result {
                                 Ok(text) => Event::ToolResult {
                                     kind,
@@ -405,6 +439,7 @@ impl Worker {
                             match best {
                                 Some((_, millis)) => {
                                     let _ = outgoing.send(Event::Selection {
+                                        index,
                                         text: format!("自动选路：选中「{name}」（{millis}ms）"),
                                     });
                                 }
@@ -513,8 +548,7 @@ impl Worker {
                     } else if let Some((up, down)) = s.traffic() {
                         let _ = outgoing.send(Event::Traffic { up, down });
                     }
-                }
-                // Schedule the next monitoring probe.
+                } // Schedule the next monitoring probe.
                 if session.is_some() && pending.is_none() {
                     let due = last_probe
                         .map(|at| at.elapsed() >= MONITOR_INTERVAL)
@@ -749,8 +783,11 @@ struct Session {
     /// when automatic selection picked another node).
     node_index: usize,
     proxy: Option<SystemProxy>,
-    /// Core stats backend (Clash API / Xray CLI) for the traffic display.
+    /// Core stats backend (Clash API / Xray gRPC) for the traffic display.
     stats: Option<StatsPoller>,
+    /// Last time the core stats API was queried. The worker loop ticks up to
+    /// four times a second and a stats query is not free, so it is throttled.
+    last_traffic: Option<Instant>,
     children: Vec<ManagedChild>,
     _configs: TemporaryConfigs,
     events: Sender<Event>,
@@ -850,6 +887,7 @@ impl Session {
             node_index: settings.selected_node,
             proxy: None,
             stats,
+            last_traffic: None,
             children: vec![child],
             _configs: configs,
             events: events.clone(),
@@ -954,7 +992,18 @@ impl Session {
             .iter_mut()
             .any(|c| c.child.try_wait().is_ok_and(|s| s.is_some()))
     }
-    fn traffic(&self) -> Option<(u64, u64)> {
+    fn traffic(&mut self) -> Option<(u64, u64)> {
+        // The worker loop wakes several times per second. Querying the core's
+        // stats API that often is wasteful (and the CLI fallback would spawn a
+        // process every tick), so sample at most once per interval.
+        let due = self
+            .last_traffic
+            .map(|at| at.elapsed() >= TRAFFIC_INTERVAL)
+            .unwrap_or(true);
+        if !due {
+            return None;
+        }
+        self.last_traffic = Some(Instant::now());
         self.stats.as_ref().and_then(|stats| stats.traffic())
     }
 }

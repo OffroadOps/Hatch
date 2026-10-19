@@ -1,8 +1,12 @@
-use eframe::egui::{
-    self, Align, Color32, CornerRadius, Frame, Layout, Margin, RichText, Stroke, Vec2,
-};
+mod dialogs;
+mod node_form;
+mod theme;
+mod tray;
+
+use eframe::egui::{self, Align, Color32, Frame, Layout, Margin, RichText, Stroke, Vec2};
+use node_form::field_template;
 use npga::{
-    config::{self, Store},
+    config::{Store, StoreWriter},
     links,
     model::{Node, RouteKind, Settings, Subscription},
     modes::{self, Mode},
@@ -15,14 +19,13 @@ use std::{
     sync::atomic::Ordering,
     time::{Duration, Instant},
 };
-
-const BLUE: Color32 = Color32::from_rgb(45, 109, 246);
-const INK: Color32 = Color32::from_rgb(29, 41, 61);
-const MUTED: Color32 = Color32::from_rgb(133, 145, 164);
-const LINE: Color32 = Color32::from_rgb(232, 237, 245);
-const PALE: Color32 = Color32::from_rgb(245, 248, 254);
-const GREEN: Color32 = Color32::from_rgb(39, 173, 123);
-
+use theme::{
+    BLUE, GREEN, INK, LINE, MUTED, PALE, bytes, card, duration, empty, logo, metric, nav_icon,
+    network_art, pill, primary, secondary, theme,
+};
+pub use tray::native_icon;
+#[cfg(windows)]
+use tray::tray;
 #[derive(Clone, Copy, PartialEq)]
 enum Page {
     Connect,
@@ -52,9 +55,39 @@ enum Connection {
     Stopping,
 }
 
+/// The node editor dialog state.
+struct NodeEditor {
+    /// Index of the edited node, `None` while adding a new one.
+    index: Option<usize>,
+    /// Identity of the node when the editor was opened. The node list can
+    /// change while the dialog is open (a delete, a subscription refresh) and
+    /// the index alone would then address a different node.
+    identity: Option<String>,
+    node: Node,
+    /// Raw protocol parameters shown in the advanced section.
+    advanced: String,
+}
+
+/// The subscription editor dialog state.
+struct SubscriptionEditor {
+    index: Option<usize>,
+    /// Subscription id when the editor was opened.
+    id: Option<String>,
+    subscription: Subscription,
+}
+
+/// Editor content that waits for the configuration write to be confirmed, so a
+/// failed write can restore the user's input instead of losing it.
+enum PendingSave {
+    Node(NodeEditor),
+    Subscription(SubscriptionEditor),
+}
+
 pub struct App {
     paths: RuntimePaths,
-    store: Store,
+    /// Writes the configuration on a background thread; the UI never waits for
+    /// DPAPI encryption or disk I/O.
+    writer: StoreWriter,
     settings: Settings,
     draft: Settings,
     load_error: bool,
@@ -74,8 +107,12 @@ pub struct App {
     import_open: bool,
     import_text: String,
     import_path: String,
-    editor: Option<(Option<usize>, Node, String)>,
-    subscription_editor: Option<(Option<usize>, Subscription)>,
+    editor: Option<NodeEditor>,
+    subscription_editor: Option<SubscriptionEditor>,
+    /// Sequence number of the most recent queued configuration save.
+    save_sequence: u64,
+    /// Editor content waiting for the pending write to be confirmed.
+    pending_save: Option<PendingSave>,
     up: u64,
     down: u64,
     up_rate: f64,
@@ -119,6 +156,7 @@ impl App {
         };
         let (modes, mode_errors) = modes::scan(&paths.modes());
         let worker = Worker::new(paths.clone());
+        let writer = StoreWriter::new(store.clone());
         #[cfg(windows)]
         let (tray, tray_ids) = if screenshot.is_none() {
             tray()
@@ -131,7 +169,7 @@ impl App {
             draft: settings.clone(),
             latencies: vec![None; settings.nodes.len()],
             paths,
-            store,
+            writer,
             settings,
             load_error,
             worker,
@@ -157,11 +195,18 @@ impl App {
             import_text: String::new(),
             import_path: String::new(),
             editor: if view == "add-node" {
-                Some((None, Node::default(), field_template("VLESS")))
+                Some(NodeEditor {
+                    index: None,
+                    identity: None,
+                    node: Node::default(),
+                    advanced: field_template("VLESS"),
+                })
             } else {
                 None
             },
             subscription_editor: None,
+            save_sequence: 0,
+            pending_save: None,
             up: 0,
             down: 0,
             up_rate: 0.0,
@@ -185,19 +230,76 @@ impl App {
             && self.probes_left == 0
             && !self.load_error
     }
+    /// Applies a settings change and queues it for writing.
+    ///
+    /// The in-memory state is updated immediately so the UI never blocks on
+    /// DPAPI encryption or disk I/O; the write itself happens on the
+    /// background writer thread and is confirmed through `events()`.
     fn commit(&mut self, next: Settings) -> bool {
-        match self.store.save(&next) {
-            Ok(()) => {
-                self.settings = next;
-                self.draft = self.settings.clone();
-                self.latencies.resize(self.settings.nodes.len(), None);
-                self.load_error = false;
+        // Validate before touching the in-memory state: the background writer
+        // would only report the problem after the change was already applied.
+        if let Err(e) = next.validate() {
+            self.error(format!("配置无效：{e:#}"));
+            return false;
+        }
+        self.settings = next.clone();
+        self.draft = next.clone();
+        self.latencies.resize(self.settings.nodes.len(), None);
+        self.load_error = false;
+        match self.writer.save(next) {
+            Ok(sequence) => {
+                self.save_sequence = sequence;
                 true
             }
             Err(e) => {
                 self.error(format!("保存失败：{e:#}"));
                 false
             }
+        }
+    }
+    /// Keeps the displayed selection in sync with the node the runtime uses.
+    fn select_node(&mut self, index: usize) {
+        if index == self.settings.selected_node || index >= self.settings.nodes.len() {
+            return;
+        }
+        let mut next = self.settings.clone();
+        next.selected_node = index;
+        self.commit(next);
+    }
+    /// Closes editors whose target disappeared from the lists.
+    ///
+    /// egui windows are not modal, so the node list can be edited while the
+    /// editor is open. Without this check the editor would write to a stale
+    /// index and either corrupt another node or panic on an out-of-range
+    /// access.
+    fn drop_stale_editors(&mut self) {
+        let stale_node = match &self.editor {
+            Some(editor) => match editor.index {
+                Some(index) => {
+                    index >= self.settings.nodes.len()
+                        || self.settings.nodes[index].identity()
+                            != editor.identity.clone().unwrap_or_default()
+                }
+                None => false,
+            },
+            None => false,
+        };
+        if stale_node {
+            self.editor = None;
+        }
+        let stale_subscription = match &self.subscription_editor {
+            Some(editor) => match editor.index {
+                Some(index) => {
+                    index >= self.settings.subscriptions.len()
+                        || self.settings.subscriptions[index].id
+                            != editor.id.clone().unwrap_or_default()
+                }
+                None => false,
+            },
+            None => false,
+        };
+        if stale_subscription {
+            self.subscription_editor = None;
         }
     }
     fn error(&mut self, message: String) {
@@ -213,9 +315,14 @@ impl App {
         }
     }
     fn selected_mode(&self) -> Option<Mode> {
+        // A mode file belongs to exactly one route kind; a file left over from
+        // another kind would be rejected by the core when the session starts.
         self.modes
             .iter()
-            .find(|m| m.file.to_string_lossy() == self.settings.mode_file)
+            .find(|m| {
+                m.file.to_string_lossy() == self.settings.mode_file
+                    && m.kind == self.settings.route_kind
+            })
             .cloned()
     }
     fn start_stop(&mut self) {
@@ -268,6 +375,27 @@ impl App {
         });
     }
     fn events(&mut self) {
+        // Configuration writes complete on a background thread.
+        let outcomes = self.writer.poll();
+        for outcome in outcomes {
+            if outcome.error.is_none() {
+                self.pending_save = None;
+                continue;
+            }
+            // A newer save is already queued; it carries the same content and
+            // will report its own outcome, so this failure is stale.
+            if outcome.sequence != self.save_sequence {
+                continue;
+            }
+            let message = outcome.error.unwrap_or_default();
+            self.error(format!("保存失败：{message}（更改仅保留在内存中）"));
+            // Restore the editor so the user's input is not lost.
+            match self.pending_save.take() {
+                Some(PendingSave::Node(editor)) => self.editor = Some(editor),
+                Some(PendingSave::Subscription(editor)) => self.subscription_editor = Some(editor),
+                None => {}
+            }
+        }
         while let Ok(event) = self.worker.events.try_recv() {
             match event {
                 Event::Starting => {}
@@ -287,6 +415,9 @@ impl App {
                 Event::Failed(message) => {
                     self.connection = Connection::Idle;
                     self.since = None;
+                    // A failed session must not leave the UI in a busy state.
+                    self.busy = false;
+                    self.tool_running = None;
                     self.error(message);
                 }
                 Event::OperationFailed(message) => {
@@ -312,10 +443,26 @@ impl App {
                     }
                     self.probes_left = self.probes_left.saturating_sub(1);
                 }
-                Event::Refreshed(next) => {
+                Event::Refreshed { id, nodes } => {
                     self.busy = false;
+                    // Merge into the live configuration: a whole-snapshot
+                    // replacement would discard the edits the user made while
+                    // the download was running.
+                    let mut next = self.settings.clone();
+                    next.nodes.retain(|n| n.text("SubscriptionId") != id);
+                    next.nodes.extend(nodes);
+                    let selected = self
+                        .settings
+                        .nodes
+                        .get(self.settings.selected_node)
+                        .map(|n| n.identity());
+                    next.selected_node = selected
+                        .and_then(|identity| {
+                            next.nodes.iter().position(|n| n.identity() == identity)
+                        })
+                        .unwrap_or(0);
                     let count = next.nodes.len();
-                    if self.commit(*next) {
+                    if self.commit(next) {
                         self.info(format!("订阅已更新，当前共 {count} 个节点"));
                     }
                 }
@@ -343,12 +490,18 @@ impl App {
                         self.info(format!("{}：{text}", kind.label()));
                     }
                 }
-                Event::Selection { text } => self.info(text),
+                Event::Selection { index, text } => {
+                    // Automatic selection may pick another node; keep the
+                    // displayed selection aligned with the running session.
+                    self.select_node(index);
+                    self.info(text);
+                }
                 Event::Switched {
                     index,
                     millis,
                     reason,
                 } => {
+                    self.select_node(index);
                     if let Some(slot) = self.latencies.get_mut(index) {
                         *slot = Some((millis, "自动选路"));
                     }
@@ -688,6 +841,17 @@ impl App {
                     || next.route_kind != self.settings.route_kind
                     || next.mode_file != self.settings.mode_file
                 {
+                    // A mode file belongs to one route kind. Switching the
+                    // acceleration mode invalidates the previous selection, so
+                    // fall back to the first mode that fits the new kind.
+                    if next.route_kind != self.settings.route_kind {
+                        next.mode_file = self
+                            .modes
+                            .iter()
+                            .find(|m| m.kind == next.route_kind)
+                            .map(|m| m.file.to_string_lossy().into_owned())
+                            .unwrap_or_default();
+                    }
                     self.commit(next);
                 }
                 ui.add_space(24.0);
@@ -880,8 +1044,12 @@ impl App {
                     .add_enabled(self.editable(), egui::Button::new("手动添加"))
                     .clicked()
                 {
-                    let n = Node::default();
-                    self.editor = Some((None, n, "{}".into()));
+                    self.editor = Some(NodeEditor {
+                        index: None,
+                        identity: None,
+                        node: Node::default(),
+                        advanced: "{}".into(),
+                    });
                 }
                 if ui
                     .add_enabled(
@@ -1004,7 +1172,12 @@ impl App {
         if let Some(index) = edit {
             let node = self.settings.nodes[index].clone();
             let fields = serde_json::to_string_pretty(&node.fields).unwrap_or_default();
-            self.editor = Some((Some(index), node, fields));
+            self.editor = Some(NodeEditor {
+                index: Some(index),
+                identity: Some(node.identity()),
+                node,
+                advanced: fields,
+            });
         }
         if let Some(index) = delete {
             let mut next = self.settings.clone();
@@ -1015,6 +1188,8 @@ impl App {
                 .min(next.nodes.len().saturating_sub(1));
             self.commit(next);
             self.latencies = vec![None; self.settings.nodes.len()];
+            // The node that was being edited may have just been deleted.
+            self.drop_stale_editors();
         }
     }
     fn subscriptions_page(&mut self, ui: &mut egui::Ui) {
@@ -1022,7 +1197,11 @@ impl App {
             ui.label(RichText::new("自动同步你的节点资源").color(MUTED));
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 if primary(ui, "＋  添加订阅", [130.0, 36.0], self.editable()) {
-                    self.subscription_editor = Some((None, Subscription::default()));
+                    self.subscription_editor = Some(SubscriptionEditor {
+                        index: None,
+                        id: None,
+                        subscription: Subscription::default(),
+                    });
                 }
             });
         });
@@ -1088,8 +1267,12 @@ impl App {
                     self.info("正在下载并校验订阅…");
                 }
                 1 => {
-                    self.subscription_editor =
-                        Some((Some(index), self.settings.subscriptions[index].clone()))
+                    let subscription = self.settings.subscriptions[index].clone();
+                    self.subscription_editor = Some(SubscriptionEditor {
+                        index: Some(index),
+                        id: Some(subscription.id.clone()),
+                        subscription,
+                    });
                 }
                 _ => {
                     let mut next = self.settings.clone();
@@ -1128,19 +1311,29 @@ impl App {
             .inner_margin(18)
             .show(ui, |ui| {
                 ui.set_min_height(ui.available_height() - 40.0);
+                // The log buffer can hold 1500 lines; rendering them all every
+                // frame is wasteful, so only the visible rows are drawn.
                 egui::ScrollArea::vertical()
                     .stick_to_bottom(true)
-                    .show(ui, |ui| {
-                        for line in &self.logs {
-                            ui.label(RichText::new(line).size(12.0).monospace().color(INK));
-                        }
-                        if self.logs.is_empty() {
-                            ui.label(
-                                RichText::new("暂无日志。启动连接或检查配置后，日志会显示在这里。")
-                                    .color(MUTED),
+                    .show_rows(ui, 18.0, self.logs.len(), |ui, rows| {
+                        for row in rows {
+                            let Some(line) = self.logs.get(row) else {
+                                continue;
+                            };
+                            ui.add(
+                                egui::Label::new(
+                                    RichText::new(line).size(12.0).monospace().color(INK),
+                                )
+                                .truncate(),
                             );
                         }
                     });
+                if self.logs.is_empty() {
+                    ui.label(
+                        RichText::new("暂无日志。启动连接或检查配置后，日志会显示在这里。")
+                            .color(MUTED),
+                    );
+                }
             });
     }
     fn settings_page(&mut self, ui: &mut egui::Ui) {
@@ -1403,206 +1596,6 @@ impl App {
             }
         });
     }
-    fn dialogs(&mut self, ctx: &egui::Context) {
-        if self.import_open {
-            let mut open = true;
-            let mut action = 0;
-            egui::Window::new("导入节点与配置").open(&mut open).collapsible(false).resizable(true).default_width(560.0).show(ctx,|ui|{
-                ui.label(RichText::new("粘贴 NPGA / VLESS / VMess / SS / SSR / Trojan / Hysteria2 / SOCKS 分享链接或 Base64 订阅内容").size(12.0).color(MUTED));ui.add_space(12.0);
-                ui.add(egui::TextEdit::multiline(&mut self.import_text).desired_rows(7).desired_width(f32::INFINITY).hint_text("vless://…"));ui.add_space(12.0);
-                if primary(ui,"导入分享链接",[150.0,36.0],!self.import_text.trim().is_empty()&&!self.busy){action=1;}
-                ui.add_space(16.0);ui.separator();ui.add_space(16.0);ui.label("或导入旧版配置文件（先备份当前 Rust 配置）");ui.add_space(8.0);
-                ui.add(egui::TextEdit::singleline(&mut self.import_path).desired_width(f32::INFINITY).hint_text("D:\\NPGA\\data\\settings.json"));
-                ui.add_space(12.0);if ui.button("导入 settings.json").clicked(){action=2;}
-                ui.add_space(8.0);ui.label(RichText::new("也可以将 settings.json 或节点文本文件拖到窗口。").size(11.0).color(MUTED));
-            });
-            self.import_open = open;
-            if action == 1 {
-                match links::parse(&self.import_text) {
-                    Ok(parsed) => {
-                        let mut next = self.settings.clone();
-                        let mut count = 0;
-                        for node in parsed.nodes {
-                            if !next.nodes.iter().any(|n| n.identity() == node.identity()) {
-                                next.nodes.push(node);
-                                count += 1;
-                            }
-                        }
-                        if self.commit(next) {
-                            self.import_open = false;
-                            self.import_text.clear();
-                            self.info(format!(
-                                "已导入 {count} 个节点，忽略 {} 个无效条目",
-                                parsed.rejected
-                            ));
-                        }
-                    }
-                    Err(e) => self.error(format!("{e:#}")),
-                }
-            }
-            if action == 2 {
-                match config::import(&PathBuf::from(self.import_path.trim())) {
-                    Ok(next) => {
-                        let count = next.nodes.len();
-                        if self.commit(next) {
-                            self.import_open = false;
-                            self.info(format!("已迁移 {count} 个节点，原配置文件保留"));
-                        }
-                    }
-                    Err(e) => self.error(format!("导入失败：{e:#}")),
-                }
-            }
-        }
-        if let Some((index, mut node, mut advanced)) = self.editor.take() {
-            if node.fields.is_empty() {
-                node.fields = serde_json::from_str(&advanced).unwrap_or_default();
-            }
-            let mut open = true;
-            let mut save = false;
-            egui::Window::new(if index.is_some() {
-                "编辑节点"
-            } else {
-                "添加节点"
-            })
-            .open(&mut open)
-            .collapsible(false)
-            .default_width(580.0)
-            .max_height(600.0)
-            .vscroll(true)
-            .show(ctx, |ui| {
-                egui::Grid::new("node-form")
-                    .num_columns(2)
-                    .min_col_width(120.0)
-                    .spacing([26.0, 12.0])
-                    .show(ui, |ui| {
-                        ui.label("协议");
-                        egui::ComboBox::from_id_salt("protocol-editor")
-                            .selected_text(&node.protocol)
-                            .show_ui(ui, |ui| {
-                                for p in [
-                                    "VLESS",
-                                    "VMess",
-                                    "Trojan",
-                                    "Hysteria2",
-                                    "SS",
-                                    "SOCKS",
-                                    "WireGuard",
-                                    "SSR",
-                                ] {
-                                    ui.selectable_value(&mut node.protocol, p.into(), p);
-                                }
-                            });
-                        ui.end_row();
-                        ui.label("名称");
-                        ui.text_edit_singleline(&mut node.remark);
-                        ui.end_row();
-                        ui.label("分组");
-                        ui.text_edit_singleline(&mut node.group);
-                        ui.end_row();
-                        ui.label("服务器地址");
-                        ui.text_edit_singleline(&mut node.hostname);
-                        ui.end_row();
-                        ui.label("端口");
-                        ui.add(egui::DragValue::new(&mut node.port).range(1..=65535));
-                        ui.end_row();
-                    });
-                ui.add_space(18.0);
-                let before = node.fields.clone();
-                node_fields(ui, &mut node);
-                if before != node.fields {
-                    advanced = serde_json::to_string_pretty(&node.fields).unwrap_or_default();
-                }
-                ui.add_space(12.0);
-                egui::CollapsingHeader::new("高级协议参数").show(ui, |ui| {
-                    ui.label(
-                        RichText::new("可编辑原版协议字段，此处包含明文凭据。")
-                            .size(11.0)
-                            .color(MUTED),
-                    );
-                    ui.add(
-                        egui::TextEdit::multiline(&mut advanced)
-                            .desired_width(f32::INFINITY)
-                            .desired_rows(8)
-                            .code_editor(),
-                    );
-                });
-                ui.add_space(12.0);
-                save = primary(ui, "保存节点", [140.0, 38.0], true);
-            });
-            if save {
-                let parsed = serde_json::from_str(&advanced)
-                    .map_err(anyhow::Error::from)
-                    .and_then(|fields| {
-                        node.fields = fields;
-                        node.validate()
-                    });
-                match parsed {
-                    Ok(()) => {
-                        let mut next = self.settings.clone();
-                        if let Some(index) = index {
-                            next.nodes[index] = node.clone();
-                        } else {
-                            next.nodes.push(node.clone());
-                        }
-                        if !self.commit(next) {
-                            self.editor = Some((index, node, advanced));
-                        }
-                    }
-                    Err(e) => {
-                        self.error(e.to_string());
-                        self.editor = Some((index, node, advanced));
-                    }
-                }
-            } else if open {
-                self.editor = Some((index, node, advanced));
-            }
-        }
-        if let Some((index, mut subscription)) = self.subscription_editor.take() {
-            let mut open = true;
-            let mut save = false;
-            egui::Window::new("订阅设置")
-                .open(&mut open)
-                .collapsible(false)
-                .default_width(520.0)
-                .show(ctx, |ui| {
-                    ui.label("订阅名称");
-                    ui.text_edit_singleline(&mut subscription.remark);
-                    ui.add_space(12.0);
-                    ui.label("订阅地址");
-                    ui.add(
-                        egui::TextEdit::singleline(&mut subscription.link)
-                            .password(true)
-                            .desired_width(f32::INFINITY),
-                    );
-                    ui.add_space(12.0);
-                    ui.label("User-Agent");
-                    ui.text_edit_singleline(&mut subscription.user_agent);
-                    ui.add_space(16.0);
-                    save = primary(ui, "保存订阅", [130.0, 36.0], true);
-                });
-            if save {
-                if subscription.remark.trim().is_empty()
-                    || !url::Url::parse(&subscription.link)
-                        .is_ok_and(|u| matches!(u.scheme(), "http" | "https"))
-                {
-                    self.error("订阅名称或 HTTP/HTTPS 地址无效".into());
-                    self.subscription_editor = Some((index, subscription));
-                } else {
-                    let mut next = self.settings.clone();
-                    if let Some(index) = index {
-                        next.subscriptions[index] = subscription.clone();
-                    } else {
-                        next.subscriptions.push(subscription.clone());
-                    }
-                    if !self.commit(next) {
-                        self.subscription_editor = Some((index, subscription));
-                    }
-                }
-            } else if open {
-                self.subscription_editor = Some((index, subscription));
-            }
-        }
-    }
 }
 
 impl eframe::App for App {
@@ -1728,498 +1721,4 @@ impl eframe::App for App {
         }
         ctx.request_repaint_after(Duration::from_millis(250));
     }
-}
-
-fn theme(ctx: &egui::Context) {
-    let mut fonts = egui::FontDefinitions::default();
-    for path in ["C:/Windows/Fonts/msyh.ttc", "C:/Windows/Fonts/simhei.ttf"] {
-        if let Ok(bytes) = std::fs::read(path) {
-            fonts.font_data.insert(
-                "Chinese".into(),
-                std::sync::Arc::new(egui::FontData::from_owned(bytes)),
-            );
-            fonts
-                .families
-                .entry(egui::FontFamily::Proportional)
-                .or_default()
-                .insert(0, "Chinese".into());
-            fonts
-                .families
-                .entry(egui::FontFamily::Monospace)
-                .or_default()
-                .push("Chinese".into());
-            break;
-        }
-    }
-    ctx.set_fonts(fonts);
-    let mut style = (*ctx.style()).clone();
-    style.visuals = egui::Visuals::light();
-    style.visuals.override_text_color = Some(INK);
-    style.visuals.panel_fill = Color32::WHITE;
-    style.visuals.window_fill = Color32::WHITE;
-    style.visuals.selection.bg_fill = BLUE;
-    style.visuals.selection.stroke = Stroke::new(1.0_f32, Color32::WHITE);
-    style.visuals.widgets.inactive.bg_fill = PALE;
-    style.visuals.widgets.inactive.weak_bg_fill = PALE;
-    style.visuals.widgets.inactive.bg_stroke = Stroke::new(1.0_f32, LINE);
-    style.visuals.widgets.inactive.corner_radius = CornerRadius::same(7);
-    style.visuals.widgets.hovered.bg_fill = Color32::from_rgb(232, 239, 255);
-    style.visuals.widgets.hovered.corner_radius = CornerRadius::same(7);
-    style.visuals.widgets.active.corner_radius = CornerRadius::same(7);
-    style.spacing.item_spacing = Vec2::new(10.0, 8.0);
-    style.spacing.button_padding = Vec2::new(12.0, 9.0);
-    style.spacing.interact_size.y = 34.0;
-    ctx.set_style(style);
-}
-fn primary(ui: &mut egui::Ui, label: &str, size: [f32; 2], enabled: bool) -> bool {
-    ui.add_enabled(
-        enabled,
-        egui::Button::new(
-            RichText::new(label)
-                .size(14.0)
-                .strong()
-                .color(Color32::WHITE),
-        )
-        .fill(BLUE)
-        .corner_radius(8)
-        .min_size(Vec2::from(size)),
-    )
-    .clicked()
-}
-fn secondary(ui: &mut egui::Ui, label: &str, enabled: bool) -> bool {
-    ui.add_enabled(
-        enabled,
-        egui::Button::new(RichText::new(label).size(12.0).color(INK))
-            .fill(Color32::WHITE)
-            .stroke(Stroke::new(1.0_f32, LINE))
-            .corner_radius(7)
-            .min_size(Vec2::new(ui.available_width(), 34.0)),
-    )
-    .clicked()
-}
-fn card(ui: &mut egui::Ui, width: f32, content: impl FnOnce(&mut egui::Ui)) {
-    Frame::new()
-        .fill(Color32::WHITE)
-        .stroke(Stroke::new(1.0_f32, LINE))
-        .corner_radius(12)
-        .inner_margin(20)
-        .show(ui, |ui| {
-            ui.set_width((width - 40.0).max(40.0));
-            ui.with_layout(Layout::top_down(Align::Min), content);
-        });
-}
-fn nav_icon(ui: &egui::Ui, page: Page, c: egui::Pos2, color: Color32) {
-    let p = ui.painter();
-    let stroke = Stroke::new(1.6_f32, color);
-    match page {
-        Page::Connect => {
-            for sign in [-1.0, 1.0] {
-                let y = sign * 4.0;
-                let x = sign * 7.0;
-                p.line_segment([c + Vec2::new(-7.0, y), c + Vec2::new(7.0, y)], stroke);
-                p.line_segment(
-                    [c + Vec2::new(x, y), c + Vec2::new(x - sign * 4.0, y - 4.0)],
-                    stroke,
-                );
-            }
-        }
-        Page::Nodes => {
-            for x in [-1.0, 1.0] {
-                for y in [-1.0, 1.0] {
-                    p.rect_stroke(
-                        egui::Rect::from_center_size(
-                            c + Vec2::new(x * 4.5, y * 4.5),
-                            Vec2::splat(6.0),
-                        ),
-                        1,
-                        stroke,
-                        egui::StrokeKind::Middle,
-                    );
-                }
-            }
-        }
-        Page::Subscriptions => {
-            p.circle_stroke(c, 7.0, stroke);
-            p.line_segment([c + Vec2::new(7.0, -2.0), c + Vec2::new(4.0, -6.0)], stroke);
-            p.line_segment(
-                [c + Vec2::new(7.0, -2.0), c + Vec2::new(10.0, -6.0)],
-                stroke,
-            );
-        }
-        Page::Logs => {
-            for y in [-5.0, 0.0, 5.0] {
-                p.line_segment(
-                    [
-                        c + Vec2::new(-7.0, y),
-                        c + Vec2::new(if y == 5.0 { 3.0 } else { 7.0 }, y),
-                    ],
-                    stroke,
-                );
-            }
-        }
-        Page::Settings => {
-            p.circle_stroke(c, 5.0, stroke);
-            p.circle_stroke(c, 1.5, stroke);
-            for i in 0..8 {
-                let a = i as f32 * std::f32::consts::TAU / 8.0;
-                let v = Vec2::new(a.cos(), a.sin());
-                p.line_segment([c + v * 6.0, c + v * 8.5], stroke);
-            }
-        }
-        Page::About => {
-            p.circle_stroke(c, 8.0, stroke);
-            p.line_segment([c + Vec2::new(0.0, -1.0), c + Vec2::new(0.0, 4.0)], stroke);
-            p.circle_filled(c + Vec2::new(0.0, -4.0), 1.0, color);
-        }
-    }
-}
-fn pill(ui: &mut egui::Ui, label: &str, bg: Color32, color: Color32) {
-    let font = egui::FontId::proportional(10.0);
-    let galley = ui
-        .painter()
-        .layout_no_wrap(label.into(), font.clone(), color);
-    let (rect, _) = ui.allocate_exact_size(
-        Vec2::new(galley.size().x + 18.0, 22.0),
-        egui::Sense::hover(),
-    );
-    ui.painter().rect_filled(rect, 5, bg);
-    ui.painter().text(
-        rect.center(),
-        egui::Align2::CENTER_CENTER,
-        label,
-        font,
-        color,
-    );
-}
-fn metric(ui: &mut egui::Ui, label: &str, value: String) {
-    let previous = ui.spacing().interact_size.y;
-    ui.spacing_mut().interact_size.y = 20.0;
-    ui.horizontal(|ui| {
-        ui.label(RichText::new(label).size(12.0).color(MUTED));
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            ui.label(RichText::new(value).size(13.0).strong().color(INK));
-        });
-    });
-    ui.spacing_mut().interact_size.y = previous;
-}
-fn empty(ui: &mut egui::Ui, title: &str, detail: &str) {
-    ui.add_space(90.0);
-    ui.vertical_centered(|ui| {
-        logo(ui, 60.0);
-        ui.add_space(20.0);
-        ui.label(RichText::new(title).size(21.0).strong().color(INK));
-        ui.add_space(8.0);
-        ui.label(RichText::new(detail).size(13.0).color(MUTED));
-    });
-}
-fn logo(ui: &mut egui::Ui, size: f32) {
-    let (rect, _) = ui.allocate_exact_size(Vec2::splat(size), egui::Sense::hover());
-    let painter = ui.painter();
-    painter.rect_filled(rect, CornerRadius::same((size / 4.0) as u8), BLUE);
-    let c = rect.center();
-    let points = vec![
-        c + Vec2::new(-size * 0.22, size * 0.04),
-        c + Vec2::new(size * 0.08, -size * 0.27),
-        c + Vec2::new(size * 0.01, -size * 0.02),
-        c + Vec2::new(size * 0.22, -size * 0.04),
-        c + Vec2::new(-size * 0.08, size * 0.27),
-        c + Vec2::new(-size * 0.01, size * 0.02),
-    ];
-    painter.add(egui::Shape::convex_polygon(
-        points,
-        Color32::WHITE,
-        Stroke::NONE,
-    ));
-}
-fn network_art(ui: &mut egui::Ui, active: bool) {
-    let (rect, _) =
-        ui.allocate_exact_size(Vec2::new(ui.available_width(), 88.0), egui::Sense::hover());
-    let p = ui.painter();
-    let c = rect.center();
-    p.circle_filled(c, 51.0, Color32::from_rgb(247, 250, 255));
-    p.circle_stroke(
-        c,
-        41.0,
-        Stroke::new(1.0_f32, Color32::from_rgb(212, 227, 255)),
-    );
-    p.circle_stroke(
-        c,
-        28.0,
-        Stroke::new(1.0_f32, Color32::from_rgb(212, 227, 255)),
-    );
-    p.line_segment(
-        [c + Vec2::new(-41.0, 0.0), c + Vec2::new(41.0, 0.0)],
-        Stroke::new(1.0_f32, Color32::from_rgb(212, 227, 255)),
-    );
-    for x in [-1.0, 1.0] {
-        let node = c + Vec2::new(x * 105.0, 0.0);
-        p.line_segment(
-            [c + Vec2::new(x * 50.0, 0.0), node],
-            Stroke::new(1.5_f32, Color32::from_rgb(212, 227, 255)),
-        );
-        p.circle_filled(node, 18.0, Color32::from_rgb(237, 244, 255));
-        p.circle_filled(node, 5.0, BLUE);
-    }
-    p.circle_filled(c, 18.0, BLUE);
-    p.text(
-        c,
-        egui::Align2::CENTER_CENTER,
-        if active { "✓" } else { "↗" },
-        egui::FontId::proportional(24.0),
-        Color32::WHITE,
-    );
-    p.circle_filled(
-        c + Vec2::new(31.0, -27.0),
-        5.0,
-        if active {
-            GREEN
-        } else {
-            Color32::from_rgb(137, 175, 250)
-        },
-    );
-}
-fn bytes(n: f64) -> String {
-    if n >= 1048576.0 {
-        format!("{:.1} MB", n / 1048576.0)
-    } else if n >= 1024.0 {
-        format!("{:.1} KB", n / 1024.0)
-    } else {
-        format!("{n:.0} B")
-    }
-}
-fn duration(d: Duration) -> String {
-    let n = d.as_secs();
-    format!("{:02}:{:02}:{:02}", n / 3600, (n / 60) % 60, n % 60)
-}
-fn field_template(protocol: &str) -> String {
-    let value = match protocol {
-        "VLESS" => {
-            serde_json::json!({"UserID":"","EncryptMethod":"none","TransferProtocol":"tcp","TLSSecureType":"tls","ServerName":"","Flow":""})
-        }
-        "VMess" => {
-            serde_json::json!({"UserID":"","EncryptMethod":"auto","AlterID":0,"TransferProtocol":"ws","TLSSecureType":"tls","Host":"","Path":"/","ServerName":""})
-        }
-        "Trojan" => {
-            serde_json::json!({"Password":"","TransferProtocol":"tcp","TLSSecureType":"tls","ServerName":""})
-        }
-        "Hysteria2" => {
-            serde_json::json!({"Password":"","ServerName":"","TLSInsecure":false,"UploadBandwidth":100,"DownloadBandwidth":100})
-        }
-        "SS" => serde_json::json!({"Password":"","EncryptMethod":"aes-128-gcm"}),
-        "SSR" => {
-            serde_json::json!({"Password":"","EncryptMethod":"aes-128-cfb","Protocol":"origin","OBFS":"plain"})
-        }
-        "WireGuard" => {
-            serde_json::json!({"PrivateKey":"","PeerPublicKey":"","PreSharedKey":"","LocalAddresses":"172.16.0.2/32","MTU":1420})
-        }
-        _ => serde_json::json!({"Username":"","Password":"","Version":"5"}),
-    };
-    serde_json::to_string_pretty(&value).unwrap_or_default()
-}
-fn text_parameter(ui: &mut egui::Ui, node: &mut Node, label: &str, key: &str, secret: bool) {
-    ui.label(label);
-    let mut value = node.text(key).to_owned();
-    if ui
-        .add(
-            egui::TextEdit::singleline(&mut value)
-                .password(secret)
-                .desired_width(330.0),
-        )
-        .changed()
-    {
-        node.set(key, value);
-    }
-    ui.end_row();
-}
-fn choice_parameter(
-    ui: &mut egui::Ui,
-    node: &mut Node,
-    label: &str,
-    key: &str,
-    fallback: &str,
-    values: &[&str],
-) {
-    ui.label(label);
-    let mut value = node.string(key, fallback);
-    let previous = value.clone();
-    egui::ComboBox::from_id_salt(key)
-        .selected_text(&value)
-        .width(200.0)
-        .show_ui(ui, |ui| {
-            for option in values {
-                ui.selectable_value(&mut value, (*option).into(), *option);
-            }
-        });
-    if value != previous {
-        node.set(key, value);
-    }
-    ui.end_row();
-}
-fn node_fields(ui: &mut egui::Ui, node: &mut Node) {
-    egui::Grid::new("protocol-fields")
-        .num_columns(2)
-        .min_col_width(120.0)
-        .spacing([26.0, 12.0])
-        .show(ui, |ui| {
-            match node.protocol.as_str() {
-                "VLESS" | "VMess" => text_parameter(ui, node, "用户 UUID", "UserID", true),
-                "WireGuard" => {
-                    text_parameter(ui, node, "私钥", "PrivateKey", true);
-                    text_parameter(ui, node, "对端公钥", "PeerPublicKey", false);
-                    text_parameter(ui, node, "预共享密钥", "PreSharedKey", true);
-                    text_parameter(ui, node, "本地地址 / CIDR", "LocalAddresses", false);
-                }
-                "SOCKS" | "Socks5" => {
-                    text_parameter(ui, node, "用户名（可留空）", "Username", false);
-                    text_parameter(ui, node, "密码（可留空）", "Password", true);
-                }
-                _ => text_parameter(ui, node, "密码", "Password", true),
-            }
-            if node.protocol == "SS" || node.protocol == "SSR" {
-                choice_parameter(
-                    ui,
-                    node,
-                    "加密方式",
-                    "EncryptMethod",
-                    "aes-128-gcm",
-                    &[
-                        "aes-128-gcm",
-                        "aes-256-gcm",
-                        "chacha20-ietf-poly1305",
-                        "2022-blake3-aes-128-gcm",
-                        "2022-blake3-aes-256-gcm",
-                    ],
-                );
-            }
-            if matches!(node.protocol.as_str(), "VMess" | "VLESS" | "Trojan") {
-                choice_parameter(
-                    ui,
-                    node,
-                    "传输方式",
-                    "TransferProtocol",
-                    "tcp",
-                    &["tcp", "ws", "grpc", "xhttp", "kcp"],
-                );
-                let fallback = if node.protocol == "Trojan" {
-                    "tls"
-                } else {
-                    "none"
-                };
-                choice_parameter(
-                    ui,
-                    node,
-                    "传输安全",
-                    "TLSSecureType",
-                    fallback,
-                    &["none", "tls", "reality"],
-                );
-                text_parameter(ui, node, "TLS 服务器名称", "ServerName", false);
-                if matches!(node.text("TransferProtocol"), "ws" | "grpc" | "xhttp") {
-                    text_parameter(ui, node, "Host", "Host", false);
-                    text_parameter(ui, node, "路径 / ServiceName", "Path", false);
-                }
-                if node.protocol == "VLESS" {
-                    text_parameter(ui, node, "Flow（可留空）", "Flow", false);
-                }
-                if node.text("TLSSecureType") == "reality" {
-                    text_parameter(ui, node, "Reality 公钥", "RealityPublicKey", false);
-                    text_parameter(ui, node, "Reality ShortId", "RealityShortId", false);
-                }
-            }
-            if node.protocol == "Hysteria2" {
-                text_parameter(ui, node, "TLS 服务器名称", "ServerName", false);
-                ui.label("证书校验");
-                let mut insecure = node.flag("TLSInsecure");
-                if ui.checkbox(&mut insecure, "跳过证书验证").changed() {
-                    node.set("TLSInsecure", insecure);
-                }
-                ui.end_row();
-                for (label, key) in [
-                    ("上行带宽 / Mbps", "UploadBandwidth"),
-                    ("下行带宽 / Mbps", "DownloadBandwidth"),
-                ] {
-                    ui.label(label);
-                    let mut n = node.number(key, 100);
-                    if ui
-                        .add(egui::DragValue::new(&mut n).range(1..=10000))
-                        .changed()
-                    {
-                        node.set(key, serde_json::json!(n));
-                    }
-                    ui.end_row();
-                }
-            }
-        });
-}
-#[cfg(windows)]
-fn tray() -> anyhow::Result<(
-    tray_icon::TrayIcon,
-    (
-        tray_icon::menu::MenuId,
-        tray_icon::menu::MenuId,
-        tray_icon::menu::MenuId,
-    ),
-)> {
-    use tray_icon::{
-        Icon, TrayIconBuilder,
-        menu::{Menu, MenuItem},
-    };
-    let menu = Menu::new();
-    let show = MenuItem::new("显示主界面", true, None);
-    let stop = MenuItem::new("停止加速", true, None);
-    let quit = MenuItem::new("退出 NPGA", true, None);
-    menu.append_items(&[&show, &stop, &quit])?;
-    let rgba = native_icon().rgba.clone();
-    let tray = TrayIconBuilder::new()
-        .with_tooltip("NPGA Rust · 游戏加速")
-        .with_icon(Icon::from_rgba(rgba, 32, 32)?)
-        .with_menu(Box::new(menu))
-        .build()?;
-    Ok((
-        tray,
-        (show.id().clone(), stop.id().clone(), quit.id().clone()),
-    ))
-}
-
-pub fn native_icon() -> std::sync::Arc<egui::IconData> {
-    let polygon = [
-        (-0.22, 0.04),
-        (0.08, -0.27),
-        (0.01, -0.02),
-        (0.22, -0.04),
-        (-0.08, 0.27),
-        (-0.01, 0.02),
-    ];
-    let mut rgba = vec![0; 32 * 32 * 4];
-    for y in 0..32 {
-        for x in 0..32 {
-            let px = (x as f32 + 0.5) / 32.0 - 0.5;
-            let py = (y as f32 + 0.5) / 32.0 - 0.5;
-            let mut white = false;
-            for i in 0..polygon.len() {
-                let (ax, ay) = polygon[i];
-                let (bx, by) = polygon[(i + 1) % polygon.len()];
-                if (ay > py) != (by > py) && px < (bx - ax) * (py - ay) / (by - ay) + ax {
-                    white = !white;
-                }
-            }
-            let i = (y * 32 + x) * 4;
-            let alpha = if (px.abs() - 0.25).max(0.0).hypot((py.abs() - 0.25).max(0.0)) > 0.25 {
-                0
-            } else {
-                255
-            };
-            let color = if white {
-                [255, 255, 255, alpha]
-            } else {
-                [45, 109, 246, alpha]
-            };
-            rgba[i..i + 4].copy_from_slice(&color);
-        }
-    }
-    std::sync::Arc::new(egui::IconData {
-        rgba,
-        width: 32,
-        height: 32,
-    })
 }

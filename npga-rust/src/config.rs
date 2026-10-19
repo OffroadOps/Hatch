@@ -5,6 +5,8 @@ use std::{
     fs,
     io::Write,
     path::{Path, PathBuf},
+    sync::mpsc,
+    thread::JoinHandle,
 };
 
 const SECRETS: &[&str] = &[
@@ -125,5 +127,87 @@ impl Store {
             let _ = fs::remove_file(&temp);
         }
         result
+    }
+}
+
+/// A save request handed to the background writer.
+struct SaveJob {
+    settings: Settings,
+    /// Monotonic id so the UI can tell whether an outcome is still the latest.
+    sequence: u64,
+}
+
+/// The result of one background save.
+pub struct SaveOutcome {
+    pub sequence: u64,
+    pub error: Option<String>,
+}
+
+/// Persists settings on a dedicated thread.
+///
+/// Writing the configuration encrypts every credential with DPAPI and rewrites
+/// the file atomically, which is far too slow for a UI frame. The writer keeps
+/// a single FIFO queue so concurrent edits are persisted in order and the last
+/// snapshot always wins.
+pub struct StoreWriter {
+    jobs: Option<mpsc::Sender<SaveJob>>,
+    outcomes: mpsc::Receiver<SaveOutcome>,
+    thread: Option<JoinHandle<()>>,
+    sequence: u64,
+}
+
+impl StoreWriter {
+    pub fn new(store: Store) -> Self {
+        let (jobs, incoming) = mpsc::channel::<SaveJob>();
+        let (outgoing, outcomes) = mpsc::channel::<SaveOutcome>();
+        let thread = std::thread::Builder::new()
+            .name("npga-config-writer".into())
+            .spawn(move || {
+                while let Ok(job) = incoming.recv() {
+                    let error = store.save(&job.settings).err().map(|e| format!("{e:#}"));
+                    let _ = outgoing.send(SaveOutcome {
+                        sequence: job.sequence,
+                        error,
+                    });
+                }
+            })
+            .ok();
+        Self {
+            jobs: Some(jobs),
+            outcomes,
+            thread,
+            sequence: 0,
+        }
+    }
+
+    /// Queues a save. Returns the sequence number of the queued job.
+    pub fn save(&mut self, settings: Settings) -> Result<u64> {
+        self.sequence += 1;
+        let sequence = self.sequence;
+        let sender = self.jobs.as_ref().context("配置写入线程已停止")?;
+        sender
+            .send(SaveJob { settings, sequence })
+            .context("配置写入线程已停止")?;
+        Ok(sequence)
+    }
+
+    /// Drains finished saves without blocking the caller.
+    pub fn poll(&self) -> Vec<SaveOutcome> {
+        let mut out = vec![];
+        while let Ok(outcome) = self.outcomes.try_recv() {
+            out.push(outcome);
+        }
+        out
+    }
+}
+
+impl Drop for StoreWriter {
+    fn drop(&mut self) {
+        // Closing the queue lets the writer finish the pending saves; joining
+        // guarantees the last edit reached the disk before the process exits.
+        self.jobs.take();
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
     }
 }

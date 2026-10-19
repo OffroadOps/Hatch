@@ -19,7 +19,7 @@ anyhow = "1.0"
 base64 = "0.22"
 eframe = { version = "=0.33.3", default-features = false, features = ["default_fonts", "glow"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
-reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls", "json"] }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls", "json", "http2"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 url = "2.5"
@@ -36,5 +36,9 @@ opt-level = "s"
 lto = "thin"
 codegen-units = 1
 strip = "symbols"
-panic = "abort"
+# `panic = "abort"` is deliberately NOT set: the runtime restores the Windows
+# system proxy, kills the managed core process tree and removes the temporary
+# core configs from `Drop` impls. Aborting on panic would skip all of that
+# and leave a stale system proxy plus orphaned xray/sing-box processes behind.
+panic = "unwind"
 

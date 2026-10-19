@@ -168,7 +168,8 @@ fn transaction_id() -> [u8; 12] {
         .map(|d| d.as_nanos())
         .unwrap_or(0);
     let mut id = [0u8; 12];
-    id[..8].copy_from_slice(&nanos.to_le_bytes());
+    // `as_nanos` returns u128, so only the low eight bytes fit here.
+    id[..8].copy_from_slice(&nanos.to_le_bytes()[..8]);
     id[8..].copy_from_slice(&(std::process::id() as u64).to_le_bytes()[..4]);
     id
 }
@@ -244,8 +245,11 @@ fn parse_address_attribute(
     }
     let family = value[1];
     let port_raw = u16::from_be_bytes([value[2], value[3]]);
-    let (ip, port) = match (family, attr_type) {
-        (0x01, ATTR_MAPPED) => {
+    // Only XOR-MAPPED-ADDRESS is obfuscated with the cookie. MAPPED-ADDRESS,
+    // CHANGED-ADDRESS and the other attributes carry the plain address.
+    let xor = attr_type == ATTR_XOR_MAPPED;
+    let (ip, port) = match (family, xor) {
+        (0x01, false) => {
             if value.len() < 8 {
                 return None;
             }
@@ -254,7 +258,7 @@ fn parse_address_attribute(
                 port_raw,
             )
         }
-        (0x01, _) => {
+        (0x01, true) => {
             if value.len() < 8 {
                 return None;
             }
@@ -266,7 +270,7 @@ fn parse_address_attribute(
             }
             (std::net::Ipv4Addr::from(octets).into(), port)
         }
-        (0x02, ATTR_MAPPED) => {
+        (0x02, false) => {
             if value.len() < 20 {
                 return None;
             }
@@ -274,7 +278,7 @@ fn parse_address_attribute(
             octets.copy_from_slice(&value[4..20]);
             (std::net::Ipv6Addr::from(octets).into(), port_raw)
         }
-        (0x02, _) => {
+        (0x02, true) => {
             if value.len() < 20 {
                 return None;
             }
@@ -378,4 +382,117 @@ pub fn discover_nat_type(
         public_end: Some(mapped.to_string()),
         local_end: Some(proxy.to_string()),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Builds a STUN Binding Success response carrying one address attribute.
+    fn success_response(attr_type: u16, value: &[u8]) -> Vec<u8> {
+        let mut message = vec![0x01, 0x01, 0x00, 0x00];
+        message.extend_from_slice(&STUN_COOKIE.to_be_bytes());
+        message.extend_from_slice(&[0u8; 12]);
+        message.extend_from_slice(&attr_type.to_be_bytes());
+        message.extend_from_slice(&(value.len() as u16).to_be_bytes());
+        message.extend_from_slice(value);
+        let length = (message.len() - 20) as u16;
+        message[2..4].copy_from_slice(&length.to_be_bytes());
+        message
+    }
+
+    /// Encodes a MAPPED-ADDRESS style value for an IPv4 address.
+    fn mapped_ipv4(ip: [u8; 4], port: u16) -> Vec<u8> {
+        let mut value = vec![0, 0x01];
+        value.extend_from_slice(&port.to_be_bytes());
+        value.extend_from_slice(&ip);
+        value
+    }
+
+    #[test]
+    fn binding_request_is_well_formed() {
+        let request = stun_request(None);
+        assert_eq!(request.len(), 20);
+        // Message type 0x0001 is a Binding Request.
+        assert_eq!(&request[0..2], &[0x00, 0x01]);
+        // No attributes, so the length field is zero.
+        assert_eq!(&request[2..4], &[0x00, 0x00]);
+        assert_eq!(&request[4..8], &STUN_COOKIE.to_be_bytes());
+    }
+
+    #[test]
+    fn change_request_attribute_is_encoded() {
+        let request = stun_request(Some(CHANGE_PORT));
+        // 20 byte header plus a 4 byte attribute value.
+        assert_eq!(request.len(), 28);
+        assert_eq!(&request[2..4], &[0x00, 0x08]);
+        assert_eq!(&request[20..22], &ATTR_CHANGE_REQUEST.to_be_bytes());
+        assert_eq!(&request[22..24], &[0x00, 0x04]);
+        assert_eq!(&request[24..28], &CHANGE_PORT.to_be_bytes());
+    }
+
+    #[test]
+    fn transaction_ids_differ_between_requests() {
+        let first = transaction_id();
+        let second = transaction_id();
+        assert_ne!(first, second);
+        assert_eq!(first.len(), 12);
+    }
+
+    #[test]
+    fn mapped_address_is_parsed() {
+        let response = success_response(ATTR_MAPPED, &mapped_ipv4([203, 0, 113, 7], 51234));
+        let parsed = parse_stun_response(&response).unwrap();
+        let mapped = parsed.mapped.expect("应解析出映射地址");
+        assert_eq!(mapped.ip().to_string(), "203.0.113.7");
+        assert_eq!(mapped.port(), 51234);
+        assert!(parsed.changed.is_none());
+    }
+
+    #[test]
+    fn xor_mapped_address_is_unmasked() {
+        let ip = [203u8, 0, 113, 7];
+        let port = 51234u16;
+        let mask = STUN_COOKIE.to_be_bytes();
+        let mut value = vec![0, 0x01];
+        value.extend_from_slice(&(port ^ u16::from_be_bytes([mask[0], mask[1]])).to_be_bytes());
+        for (index, byte) in ip.iter().enumerate() {
+            value.push(byte ^ mask[index]);
+        }
+        let response = success_response(ATTR_XOR_MAPPED, &value);
+        let parsed = parse_stun_response(&response).unwrap();
+        let mapped = parsed.mapped.expect("应解析出异或映射地址");
+        assert_eq!(mapped.ip().to_string(), "203.0.113.7");
+        assert_eq!(mapped.port(), port);
+    }
+
+    #[test]
+    fn changed_address_is_parsed() {
+        let response = success_response(ATTR_CHANGED, &mapped_ipv4([198, 51, 100, 9], 3478));
+        let parsed = parse_stun_response(&response).unwrap();
+        let changed = parsed.changed.expect("应解析出变更地址");
+        assert_eq!(changed.ip().to_string(), "198.51.100.9");
+        assert_eq!(changed.port(), 3478);
+    }
+
+    #[test]
+    fn malformed_responses_are_rejected() {
+        // Too short to be a STUN message.
+        assert!(parse_stun_response(&[0u8; 8]).is_err());
+        // Length field claims more data than is present.
+        let mut truncated = success_response(ATTR_MAPPED, &mapped_ipv4([1, 2, 3, 4], 1));
+        truncated.truncate(24);
+        assert!(parse_stun_response(&truncated).is_err());
+        // Not a Binding Success response.
+        let mut wrong_type = success_response(ATTR_MAPPED, &mapped_ipv4([1, 2, 3, 4], 1));
+        wrong_type[1] = 0x02;
+        assert!(parse_stun_response(&wrong_type).is_err());
+    }
+
+    #[test]
+    fn attribute_values_shorter_than_the_address_are_ignored() {
+        let response = success_response(ATTR_MAPPED, &[0, 0x01, 0x00]);
+        let parsed = parse_stun_response(&response).unwrap();
+        assert!(parsed.mapped.is_none());
+    }
 }

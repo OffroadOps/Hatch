@@ -14,6 +14,7 @@ const CANDIDATES: &[&str] = &[
     "http://cachefly.cachefly.net/10mb.test",
 ];
 
+#[derive(Debug)]
 pub struct SpeedResult {
     pub mbps: f64,
     pub bytes: u64,
@@ -32,36 +33,48 @@ pub fn measure(http_proxy: &str, timeout_ms: u64) -> anyhow::Result<SpeedResult>
         .connect_timeout(Duration::from_millis(4000))
         .build()
         .context("创建测速客户端失败")?;
+    let download = |url: &str| -> anyhow::Result<u64> { download_once(&client, url) };
+    measure_with(&download, CANDIDATES, 512 * 1024, 0.05)
+}
+
+/// Downloads one endpoint and returns the number of transferred bytes.
+fn download_once(client: &reqwest::blocking::Client, url: &str) -> anyhow::Result<u64> {
+    let mut response = client.get(url).send().map_err(|e| anyhow::anyhow!("{e}"))?;
+    if !response.status().is_success() {
+        anyhow::bail!("返回 {}", response.status());
+    }
+    let mut total = 0u64;
+    let mut buffer = [0u8; 32768];
+    loop {
+        match std::io::Read::read(&mut response, &mut buffer) {
+            Ok(0) => break,
+            Ok(n) => total += n as u64,
+            Err(e) => anyhow::bail!("传输中断: {e}"),
+        }
+    }
+    Ok(total)
+}
+
+/// Measures the download speed with an explicit downloader and endpoint list.
+///
+/// `min_bytes` and `min_seconds` describe the smallest transfer that still
+/// counts as a speed sample; smaller responses are treated as a failure of
+/// that endpoint.
+fn measure_with(
+    download: &dyn Fn(&str) -> anyhow::Result<u64>,
+    candidates: &[&str],
+    min_bytes: u64,
+    min_seconds: f64,
+) -> anyhow::Result<SpeedResult> {
     let mut last_error = None;
-    for url in CANDIDATES {
+    for url in candidates {
         let begin = Instant::now();
-        match client.get(*url).send() {
-            Ok(response) => {
-                if !response.status().is_success() {
-                    last_error = Some(format!("{url} 返回 {}", response.status()));
-                    continue;
-                }
-                let mut total = 0u64;
-                let mut response = response;
-                let mut buffer = [0u8; 32768];
-                let mut read_error: Option<String> = None;
-                loop {
-                    match std::io::Read::read(&mut response, &mut buffer) {
-                        Ok(0) => break,
-                        Ok(n) => total += n as u64,
-                        Err(e) => {
-                            read_error = Some(e.to_string());
-                            break;
-                        }
-                    }
-                }
+        match download(url) {
+            Ok(total) => {
                 let seconds = begin.elapsed().as_secs_f64();
-                if total < 512 * 1024 || seconds <= 0.05 {
+                if total < min_bytes || seconds <= min_seconds {
                     // Too small to call a speed sample; treat as failure.
-                    last_error = Some(match read_error {
-                        Some(e) => format!("{url} 传输中断: {e}"),
-                        None => format!("{url} 传输量过小"),
-                    });
+                    last_error = Some(format!("{url} 传输量过小"));
                     continue;
                 }
                 return Ok(SpeedResult {
@@ -71,11 +84,68 @@ pub fn measure(http_proxy: &str, timeout_ms: u64) -> anyhow::Result<SpeedResult>
                     endpoint: (*url).into(),
                 });
             }
-            Err(e) => last_error = Some(format!("{url}: {e}")),
+            Err(e) => last_error = Some(format!("{url}: {e:#}")),
         }
     }
     Err(anyhow::anyhow!(
         "测速失败：{}",
         last_error.unwrap_or_else(|| "没有可用测速节点".into())
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn transfer_is_measured_and_reported() {
+        let download = |_url: &str| Ok(8 * 1024 * 1024u64);
+        let result =
+            measure_with(&download, &["https://example.test/big"], 1024, 0.0).expect("测速应成功");
+        assert_eq!(result.bytes, 8 * 1024 * 1024);
+        assert!(result.seconds > 0.0);
+        assert!(result.mbps > 0.0);
+        assert_eq!(result.endpoint, "https://example.test/big");
+    }
+
+    #[test]
+    fn tiny_responses_are_rejected() {
+        let download = |_url: &str| Ok(1024u64);
+        let error = measure_with(&download, &["https://example.test/small"], 4096, 0.0)
+            .expect_err("过小的传输量应判为失败");
+        assert!(format!("{error:#}").contains("传输量过小"), "{error:#}");
+    }
+
+    #[test]
+    fn failing_endpoints_are_reported() {
+        let download = |_url: &str| Err(anyhow::anyhow!("返回 404 Not Found"));
+        let error = measure_with(&download, &["https://example.test/missing"], 1024, 0.0)
+            .expect_err("404 应判为失败");
+        assert!(format!("{error:#}").contains("404"), "{error:#}");
+    }
+
+    #[test]
+    fn the_next_candidate_is_tried_after_a_failure() {
+        let download = |url: &str| {
+            if url.contains("bad") {
+                Err(anyhow::anyhow!("返回 500"))
+            } else {
+                Ok(4 * 1024 * 1024u64)
+            }
+        };
+        let result = measure_with(
+            &download,
+            &["https://example.test/bad", "https://example.test/good"],
+            1024,
+            0.0,
+        )
+        .expect("第二个候选点应被使用");
+        assert_eq!(result.endpoint, "https://example.test/good");
+    }
+
+    #[test]
+    fn invalid_proxy_is_rejected() {
+        let error = measure("not a proxy url", 1000).expect_err("非法代理地址应报错");
+        assert!(format!("{error:#}").contains("代理地址无效"), "{error:#}");
+    }
 }

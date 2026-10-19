@@ -1,8 +1,42 @@
 # NPGA Changelog
 
-All notable changes to Hatch will be documented in this file.
+All notable changes to NPGA will be documented in this file.
 
 ## [Unreleased]
+
+### Fixed (npga-rust)
+- **节点/订阅编辑器越界写入（会终止进程）**：编辑器只记录下标，节点被删除或订阅被刷新后仍按旧下标写回，
+  越界即 panic；release 的 `panic = "abort"` 会直接终止进程并跳过 `Drop`（系统代理不恢复、核心进程不被回收）。
+  编辑器现同时记录节点 identity / 订阅 id，写入前校验目标未变并拒绝陈旧写入。
+- **release 改回 `panic = "unwind"`**：`Session`/`ManagedChild`/`Worker` 的 `Drop` 负责恢复系统代理、
+  终止受管进程树与清理临时配置，abort 会让这些清理全部落空。
+- **Xray 统计接口配置修正**：Xray 26.x 不再支持 `dokodemo-door` 的 `address` 写法，旧配置会让核心吞掉
+  gRPC 前导，所有统计查询必然失败；改用核心自带的 `api.listen` 监听（无需额外入站与路由规则）。
+- **Xray 流量统计不再每轮循环拉起子进程**：原先每 250 ms 就会 `spawn` 一次 `xray api statsquery`。
+  现在直接以 h2c + gRPC 查询核心 `StatsService`，采样节流到每秒一次，CLI 仅作一次性兜底。
+- **订阅刷新不再覆盖并发修改**：刷新结果原先整体替换配置，下载期间的用户改动会丢失；现在只合并
+  该订阅自己的节点。
+- **自动选路与界面显示同步**：自动选路/切换节点后界面仍显示手动选择的节点，现跟随运行时同步。
+- **路由模式与加速方式不匹配**：切换加速方式后残留的旧模式文件会被提交并导致连接失败；
+  现在自动选择新方式下的模式并校验 `RouteKind`。
+- **NAT 类型探测 panic**：`transaction_id()` 把 `u128` 的 16 字节写进 8 字节切片，每次调用都 panic，
+  NAT 探测必然失败；同时修正 `CHANGED-ADDRESS` 被误当作异或地址解码的问题。
+- **后台任务 panic 不再卡死界面**：订阅刷新与诊断工具线程现在捕获 panic 并回报错误。
+- **配置写入移出 UI 线程**：原先每次改动都在渲染过程中同步做 DPAPI 加密与原子写盘，节点多时明显掉帧；
+  现在由后台线程按序写入。
+- **日志面板虚拟化**：1500 行日志原先每帧渲染 1500 个控件，现在只绘制可见行。
+
+### Changed (npga-rust)
+- 测试覆盖扩大：新增 `stats.rs`（protobuf/gRPC 编解码、API 配置）、`nat.rs`（STUN 报文与属性解析）、
+  `speedtest.rs`（测速采样判定）单元测试；GeoIP 用例改为 `#[ignore]` + `NPGA_RUNTIME_ROOT` 约定，
+  不再在缺少数据库时静默通过。`cargo test --include-ignored` 现为 35 单元 + 18 迁移 + 7 真实核心集成。
+- 移除仅供已归档 C# 客户端使用的死资产：`Storage/tun2socks.bin`、`Storage/aiodns.conf`、
+  `Storage/i18n/*`、`Storage/stun.txt`、`hatch_logo_no_background.png`（约 8.4 MB），
+  并重写 `Storage/README.md` 说明当前内容。
+- **UI 层拆分**：`ui.rs` 拆为 `ui.rs`（App 与页面）、`ui/theme.rs`、`ui/dialogs.rs`、`ui/node_form.rs`、
+  `ui/tray.rs`，行为不变。
+- 可执行文件由 5.8 MB 增至 7.9 MB：`panic = "unwind"` 需要展开表（保证 panic 时仍执行清理），
+  HTTP/2 客户端为 gRPC 统计查询所需。整包体积不变（核心二进制占绝大部分）。
 
 ### Changed
 - **架构收敛（ADR-001）**：Rust 客户端 `npga-rust/` 成为唯一主线；.NET/WinForms 客户端 `Hatch/` 冻结于 2.0.x，

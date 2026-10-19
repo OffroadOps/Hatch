@@ -301,6 +301,124 @@ fn real_xray_socks_and_http_echo_then_stop_twice() {
     );
 }
 
+/// Probes whether a local HTTP filter intercepts cleartext HTTP/2 requests.
+///
+/// AdGuard and similar products answer loopback HTTP/2 requests with an HTML
+/// block page instead of passing them through. A plain HTTP/1.1 probe would
+/// not notice that, so the control request uses the same h2c stack as the
+/// stats query.
+fn h2c_is_intercepted(port: u16) -> bool {
+    let client = reqwest::blocking::Client::builder()
+        .http2_prior_knowledge()
+        .timeout(Duration::from_secs(5))
+        .build()
+        .unwrap();
+    match client
+        .post(format!("http://127.0.0.1:{port}/"))
+        .header("content-type", "application/grpc")
+        .body(Vec::new())
+        .send()
+    {
+        Ok(response) => {
+            let body = response.text().unwrap_or_default();
+            body.contains("<html") || body.contains("AdGuard")
+        }
+        Err(_) => false,
+    }
+}
+
+#[test]
+#[ignore = "requires bundled xray; no external network or routing changes"]
+fn xray_stats_are_queried_over_grpc_without_spawning_the_cli() {
+    let upstream = MockSocks::start();
+    let node = Node {
+        protocol: "SOCKS".into(),
+        hostname: "127.0.0.1".into(),
+        port: upstream.port,
+        ..Node::default()
+    };
+    let settings = settings(node);
+    let paths = paths();
+    let worker = Worker::new(paths.clone());
+    worker
+        .send(CommandMessage::Start {
+            settings: Box::new(settings.clone()),
+            mode: None,
+        })
+        .unwrap();
+    wait(&worker, |e| matches!(e, Event::Connected { .. }));
+
+    // The core exposes its stats service on the API port derived from the
+    // SOCKS port. The query must work over gRPC so the traffic display does
+    // not have to spawn `xray api statsquery` once per second.
+    let (xray_api, _) = npga::stats::api_ports(settings.socks_port).unwrap();
+    let poller = npga::stats::StatsPoller::xray(xray_api, paths.root.join("bin/xray.exe"));
+
+    // Push some traffic through the proxy so the counters are non-zero.
+    let mut socks = TcpStream::connect(("127.0.0.1", settings.socks_port)).unwrap();
+    socks
+        .set_read_timeout(Some(Duration::from_secs(4)))
+        .unwrap();
+    socks.write_all(&[5, 1, 0]).unwrap();
+    let mut greeting = [0; 2];
+    socks.read_exact(&mut greeting).unwrap();
+    assert_eq!(greeting, [5, 0]);
+    socks
+        .write_all(&[5, 1, 0, 1, 203, 0, 113, 5, 1, 187])
+        .unwrap();
+    let mut response = [0; 10];
+    socks.read_exact(&mut response).unwrap();
+    assert_eq!(response[1], 0);
+    let payload = vec![0x5Au8; 4096];
+    socks.write_all(&payload).unwrap();
+    let mut echoed = vec![0u8; payload.len()];
+    socks.read_exact(&mut echoed).unwrap();
+    assert_eq!(echoed, payload);
+    drop(socks);
+
+    // The counters may lag behind until the core flushes them.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut counted = None;
+    let mut last_error = String::new();
+    while Instant::now() < deadline {
+        match poller.xray_stats_over_grpc(xray_api) {
+            Ok(value) => {
+                counted = Some(value);
+                if value.0 > 0 || value.1 > 0 {
+                    break;
+                }
+            }
+            Err(e) => last_error = format!("{e:#}"),
+        }
+        thread::sleep(Duration::from_millis(250));
+    }
+
+    if counted.is_none() {
+        // Distinguish a broken client from an environment that filters
+        // cleartext HTTP/2 traffic (AdGuard and similar products answer
+        // loopback h2c requests with a block page).
+        if h2c_is_intercepted(xray_api) {
+            println!(
+                "跳过：本机的过滤软件拦截了回环 h2c 请求，无法验证 Xray gRPC 统计查询。原始错误：{last_error}"
+            );
+            worker.send(CommandMessage::Stop).unwrap();
+            wait(&worker, |e| matches!(e, Event::Stopped));
+            drop(worker);
+            return;
+        }
+        panic!("Xray gRPC 统计查询失败：{last_error}");
+    }
+    let (up, down) = counted.unwrap();
+    assert!(
+        up > 0 || down > 0,
+        "gRPC 统计应反映已传输的流量，收到 up={up} down={down}"
+    );
+
+    worker.send(CommandMessage::Stop).unwrap();
+    wait(&worker, |e| matches!(e, Event::Stopped));
+    drop(worker);
+}
+
 #[test]
 #[ignore = "requires bundled xray; no external network or routing changes"]
 fn occupied_port_fails_without_killing_other_processes() {
@@ -339,7 +457,7 @@ fn stats_api_attachments_validate_against_real_cores() {
     let paths = paths();
     fs::create_dir_all(&paths.data).unwrap();
 
-    // Xray: VLESS node plus the StatsService inbound and routing rule.
+    // Xray: VLESS node plus the StatsService API listener.
     let mut xray_node = Node {
         protocol: "VLESS".into(),
         hostname: "127.0.0.1".into(),
@@ -350,16 +468,18 @@ fn stats_api_attachments_validate_against_real_cores() {
     let xray_settings = settings(xray_node.clone());
     let (xray_api, sing_api) = npga::stats::api_ports(xray_settings.socks_port).unwrap();
     let mut config = core_config::xray(&xray_node, &xray_settings).unwrap();
+    let inbounds_before = config["inbounds"].as_array().unwrap().len();
     npga::stats::attach_xray_stats(&mut config, xray_api).unwrap();
-    // The api outbound and stats counters must be present after attachment.
+    // The core hosts the API itself, so no extra inbound and no routing rule
+    // are needed any more.
     assert_eq!(config["api"]["tag"], "api");
+    assert_eq!(config["api"]["listen"], format!("127.0.0.1:{xray_api}"));
+    assert_eq!(config["api"]["services"][0], "StatsService");
     assert!(config["stats"].is_object());
-    assert!(
-        config["inbounds"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|i| i["tag"] == "api-stats-in" && i["port"] == xray_api)
+    assert_eq!(
+        config["inbounds"].as_array().unwrap().len(),
+        inbounds_before,
+        "统计接口不应再额外增加入站"
     );
     let file = paths.data.join("xray-stats.json");
     fs::write(&file, serde_json::to_vec(&config).unwrap()).unwrap();
@@ -501,9 +621,15 @@ fn auto_select_skips_failed_candidates() {
             .recv_timeout(Duration::from_secs(25))
             .expect("控制线程超时");
         match event {
-            Event::Selection { text } => {
+            Event::Selection { index, text } => {
                 assert!(text.contains("可用节点"), "应选中可用节点: {text}");
                 assert!(!text.contains("坏节点"), "不应选中坏节点: {text}");
+                // The reported index must address the node that was picked.
+                assert_eq!(
+                    settings.nodes.get(index).map(|n| n.remark.as_str()),
+                    Some("可用节点"),
+                    "自动选路应汇报可用节点的下标"
+                );
                 saw_selection = true;
             }
             Event::Connected { .. } => break,

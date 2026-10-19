@@ -60,10 +60,12 @@ Rust 版是独立客户端，目前不能宣称与原版每一项辅助功能完
 - 流量统计端口随 SOCKS 端口派生（+3 Xray API、+4 sing-box Clash API），启动前预占校验，冲突时报明确错误。
 - 新增模块：`stats.rs`（统计轮询）、`nat.rs`（STUN/NAT 类型）、`geoip.rs`（纯 Rust mmdb 读取器）、
   `speedtest.rs`（代理测速）、`update.rs`（版本检查）。
-- 验证：`cargo test` 全绿（4 单元 + 18 迁移 + 4 真实核心集成）；GeoIP 读取器与参考 `maxminddb` 实现对拍一致；
+- 验证：`cargo test` 全绿（35 单元 + 18 迁移 + 7 真实核心集成，其中 2 个 GeoIP 用例需
+  `NPGA_RUNTIME_ROOT` 指向带 `GeoLite2-Country.mmdb` 的运行目录）；GeoIP 读取器与参考 `maxminddb` 实现对拍一致；
   统计 API 配置经真实 Xray 26.3.27 / sing-box 1.13.14 校验通过。
-- 已知未验证项：Xray `api statsquery` 的 gRPC 调用在沙箱环境被本机代理拦截，未做端到端实测；
-  实现使用官方 CLI 子进程，失败时速率显示为「—」而不影响连接。
+- 已知未验证项：Xray 统计查询的 gRPC 调用在装有 AdGuard 等 HTTP 过滤软件的机器上会被拦截
+  （回环 h2c 请求被替换为拦截页），此时速率显示为「—」而不影响连接；集成测试用同栈控制探针
+  识别该情况并跳过，不会误判为缺陷。
 
 ## 2026-10-15：进程模式 TUN 后端（实验）与 CI 收敛
 
@@ -83,6 +85,44 @@ Rust 版是独立客户端，目前不能宣称与原版每一项辅助功能完
 - 删除 `runtime.rs` 的 Redirector 动态 FFI、驱动安装路径与启动器 `--install-driver`；进程模式只保留 sing-box TUN 后端。
 - 删除 `install-driver.ps1`、`runtime-native/`（Redirector.bin、nfapi.dll、SHA256SUMS.txt）与 `Storage/nfdriver.sys`。
 - `Tools/AssembleRuntime.ps1` 与 `build-rust.ps1` 的必需组件与打包白名单同步移除遗留项；发布包不再包含内核驱动与原生转发组件。
+
+## 2026-10-19：稳定性修复（崩溃、统计与 I/O）
+
+### Fixed
+
+- **节点/订阅编辑器的越界写入（会崩溃进程）**：编辑器原先只记录下标，节点被删除或订阅被刷新后
+  仍按旧下标写回，越界时 panic；release 配置的 `panic = "abort"` 会直接终止进程，
+  连带跳过 `Drop`（系统代理不恢复、核心进程不被回收）。现在编辑器同时记录节点 identity /
+  订阅 id，写入前校验目标未变，否则拒绝并提示；下标越界也不再可能发生。
+- **release 配置改回 `panic = "unwind"`**：`Session`/`ManagedChild`/`Worker` 的 `Drop` 负责恢复系统代理、
+  终止受管进程树与清理临时配置，abort 会让这些清理全部落空。
+- **配置写入移出 UI 线程**：原先每次改动都在渲染过程中同步做 DPAPI 加密与原子写盘，节点多时明显掉帧。
+  现在由 `config::StoreWriter` 在后台线程按序写入，UI 立即更新内存状态，失败时给出明确提示并恢复编辑器内容。
+- **Xray 统计接口配置修正**：Xray 26.x 已不再支持 `dokodemo-door` 的 `address` 写法，旧的
+  `dokodemo-door` + 路由规则组合会让核心吞掉 gRPC 前导，所有统计查询必然失败。现改用核心自带的
+  `api.listen` 监听（无需额外入站与路由规则），实测核心日志输出 `API server listening on …`。
+- **Xray 流量统计不再每轮循环拉起子进程**：原先工作线程每 250 ms 就会 `spawn` 一次
+  `xray api statsquery`。现在直接用 h2c + gRPC 查询核心的 `StatsService`，并把采样节流到每秒一次；
+  CLI 子进程仅作为 gRPC 不可用时的一次性兜底。
+- **订阅刷新不再覆盖并发修改**：刷新结果原先整体替换配置，下载期间用户改动的设置会丢失。
+  现在只合并该订阅自己的节点，其余字段保留。
+- **自动选路与界面显示同步**：自动选路/切换节点后，界面仍显示手动选择的节点。现在跟随运行时同步。
+- **路由模式与加速方式不匹配**：切换加速方式后残留的旧模式文件会被提交，连接时才报错。
+  现在切换方式时自动选择新方式下的第一个模式，并在取模式时校验 `RouteKind`。
+- **NAT 类型探测 panic**：`transaction_id()` 把 `u128` 的 16 字节写进 8 字节切片，每次调用都 panic，
+  NAT 探测必然失败。同时修正 `CHANGED-ADDRESS` 被误当作异或地址解码的问题（仅 `XOR-MAPPED-ADDRESS` 需要异或解掩码）。
+- **后台任务 panic 不再卡死界面**：订阅刷新与诊断工具的线程现在捕获 panic 并回报错误，
+  界面不会永久停留在「忙碌」状态。
+- **日志面板虚拟化**：1500 行日志原先每帧渲染 1500 个控件，现在只绘制可见行。
+
+### Changed
+
+- `cargo test` 覆盖扩大：新增 `stats.rs`（protobuf/gRPC 编解码、API 配置）、`nat.rs`（STUN 报文与属性解析）、
+  `speedtest.rs`（测速采样判定）单元测试；GeoIP 用例改为 `#[ignore]` + `NPGA_RUNTIME_ROOT` 约定，
+  不再在缺少数据库时静默通过。
+- **UI 层拆分**：`ui.rs` 从 2400 余行拆为 `ui.rs`（`App` 与各页面）、`ui/theme.rs`（配色与绘制helper）、
+  `ui/dialogs.rs`（导入 / 节点 / 订阅对话框）、`ui/node_form.rs`（协议参数表单）、`ui/tray.rs`（托盘与图标），
+  行为不变。
 
 ## 参考
 

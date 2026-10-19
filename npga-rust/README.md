@@ -22,7 +22,7 @@ NPGA 的 Rust 原生 Windows 客户端。主程序无 .NET / WebView 依赖；UI
 
 关闭窗口默认收起到系统托盘；托盘可打开主界面、停止加速和退出。退出释放受管核心、过滤器、临时配置和系统代理。Windows Job 对象负责终止受管进程树；程序不会为了释放端口杀死其他应用。
 
-实时流量统计经核心自带接口（Xray `api`/`stats`、sing-box `clash_api`）按秒轮询，各路由模式统一显示，接口不可用时显示「—」；延迟是 TCP 连通性，Hysteria2 使用 ICMP，不能等同于 UDP 隧道质量。
+实时流量统计经核心自带接口（Xray `api`/`stats` 的 gRPC 服务、sing-box `clash_api`）按秒轮询，各路由模式统一显示，接口不可用时显示「—」；延迟是 TCP 连通性，Hysteria2 使用 ICMP，不能等同于 UDP 隧道质量。Xray 的统计查询直接以 h2c + gRPC 访问核心的 `StatsService`，不拉起额外子进程；装有 HTTP 过滤软件（AdGuard 等）的机器上回环 h2c 请求会被拦截，此时速率显示为「—」，不影响连接。
 
 ## 构建
 
@@ -47,6 +47,11 @@ $env:NPGA_RUNTIME_ROOT = 'D:/netch.plus/release-npga/NPGA'
 cargo test -- --include-ignored --test-threads=1
 cargo clippy --all-targets -- -D warnings
 ```
+
+`--include-ignored` 会额外运行依赖真实内核的集成用例：它们需要 `NPGA_RUNTIME_ROOT` 指向
+带 `bin/xray.exe`、`bin/sing-box.exe` 的运行目录。GeoIP 用例还需要同目录下的
+`bin/GeoLite2-Country.mmdb`。统计接口的 gRPC 用例在装有 HTTP 过滤软件（AdGuard 等）的机器上
+会被拦截，测试会用同栈控制探针识别并跳过。
 
 本机 Rust 工具链单独位于项目 `.build-cache/rust-toolchain`，没有修改系统 PATH。
 

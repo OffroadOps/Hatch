@@ -348,30 +348,43 @@ mod tests {
     use std::net::IpAddr;
     use std::path::PathBuf;
 
-    /// Locates the shipped database in any known build output; the test is
-    /// skipped (not failed) when no database is present, so CI without the
-    /// release artifacts stays green.
-    fn database() -> Option<PathBuf> {
-        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .parent()?
-            .to_owned();
-        [
-            "release-net10/Hatch/bin/GeoLite2-Country.mmdb",
+    /// Locates the shipped database.
+    ///
+    /// The test needs the real GeoLite2 file, so it follows the same
+    /// convention as the core integration tests: `NPGA_RUNTIME_ROOT` must
+    /// point at a runtime directory that contains the database. The test is
+    /// marked `#[ignore]` so a checkout without the release artifacts still
+    /// builds, and `--include-ignored` runs it for real.
+    fn database() -> PathBuf {
+        let mut candidates = vec![];
+        if let Some(root) = std::env::var_os("NPGA_RUNTIME_ROOT") {
+            let root = PathBuf::from(root);
+            candidates.push(root.join("bin/GeoLite2-Country.mmdb"));
+            candidates.push(root.join("GeoLite2-Country.mmdb"));
+        }
+        let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_default();
+        for relative in [
+            "release-rust/NPGA-Rust/bin/GeoLite2-Country.mmdb",
             "release-npga/NPGA/bin/GeoLite2-Country.mmdb",
+            "release-net10/Hatch/bin/GeoLite2-Country.mmdb",
             "release/Hatch/bin/GeoLite2-Country.mmdb",
-        ]
-        .into_iter()
-        .map(|p| root.join(p))
-        .find(|p| p.is_file())
+            ".release-runtime/bin/GeoLite2-Country.mmdb",
+        ] {
+            candidates.push(workspace.join(relative));
+        }
+        candidates
+            .into_iter()
+            .find(|p| p.is_file())
+            .expect("设置 NPGA_RUNTIME_ROOT 指向带 bin/GeoLite2-Country.mmdb 的运行目录")
     }
 
     #[test]
+    #[ignore = "requires the GeoLite2 database; run with NPGA_RUNTIME_ROOT"]
     fn lookup_matches_reference_results() {
-        let Some(path) = database() else {
-            eprintln!("跳过：未找到 GeoLite2 数据库");
-            return;
-        };
-        let geo = GeoIp::open(&path).expect("打开 IP 库失败");
+        let geo = GeoIp::open(&database()).expect("打开 IP 库失败");
         // Values cross-checked against the reference maxminddb implementation.
         assert_eq!(
             geo.country_code("114.114.114.114".parse().unwrap()),
@@ -392,12 +405,9 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires the GeoLite2 database; run with NPGA_RUNTIME_ROOT"]
     fn ipv6_and_private_ranges_resolve() {
-        let Some(path) = database() else {
-            eprintln!("跳过：未找到 GeoLite2 数据库");
-            return;
-        };
-        let geo = GeoIp::open(&path).expect("打开 IP 库失败");
+        let geo = GeoIp::open(&database()).expect("打开 IP 库失败");
         // IPv6 traversal (the ipv4_start shortcut does not apply here).
         assert_eq!(
             geo.country_code("2400:3200::1".parse().unwrap()),
