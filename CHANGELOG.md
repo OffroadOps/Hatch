@@ -2,7 +2,10 @@
 
 All notable changes to NPGA will be documented in this file.
 
-## [Unreleased]
+## [3.0.0] - 2026-10-20
+
+Rust 原生客户端成为唯一主线，2.0.x 的 .NET/WinForms 客户端冻结并移出仓库（ADR-001 / ADR-007）。
+本版同时修复了若干会导致进程终止、配置丢失或功能完全不可用的问题。
 
 ### Fixed (npga-rust)
 - **节点/订阅编辑器越界写入（会终止进程）**：编辑器只记录下标，节点被删除或订阅被刷新后仍按旧下标写回，
