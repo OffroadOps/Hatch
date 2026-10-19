@@ -83,3 +83,33 @@
   - 旧 `NPGA.zip`/`NPGASetup.exe` 安装器不再随新版本发布；历史版本资产仍保留在 GitHub Releases。
   - C# 测试与原生 SOCKS 测试随 `Tests/` 归档，不再在 CI 运行；如需回归验证须在归档目录执行。
   - 主仓库 Git 历史保留归档前的全部内容（`a934f42` 及之前），恢复可通过 revert 或从归档目录取回。
+## ADR-008：Xray 统计接口改用核心自带 API 监听，查询改为直接 gRPC
+
+- **日期**：2026-10-19
+- **状态**：Accepted
+- **背景**：ADR-005 定下「流量统计统一走核心 stats API」，但当时为 Xray 选定的承载方式是「`api`/`stats` + dokodemo-door 管理入口 + 路由规则」，查询方式是 `xray api statsquery` CLI 子进程。两条实现都存在问题：
+  1. **接口配置在当前核心上根本不工作**。固定的 Xray 26.3.27 已把 dokodemo-door 的 `address` 改名为 `rewriteAddress`，旧写法被忽略，入站退化为动态端口模式并吞掉 gRPC 前导，导致每一次统计查询都失败。核心日志显示请求确实被路由到 `[api]` 出口，但握手始终无法完成。官方文档同时提供了自 v1.8.12 起的简化写法：`api.listen` 由核心自行开启 API 监听，无需额外入站与路由规则。
+  2. **查询方式的成本与可靠性都不合格**。工作线程每 250 ms 循环一次，Xray 后端每次都 `spawn` 一个 `xray api statsquery` 进程（约 4 次/秒），既浪费 CPU 又与主循环争抢时间。
+- **决策**：
+  1. Xray 侧改用核心自带的 API 监听：配置写入 `"api": {"tag": "api", "listen": "<host>:<port>", "services": ["StatsService"]}`，不再生成 dokodemo-door 入站，也不再插入路由规则；`api_ports` 仍按 SOCKS 端口派生（+3），并在会话启动前预占校验。
+  2. 查询改为客户端直接以 h2c + gRPC 调用核心的 `StatsService/QueryStats`：请求/响应用手写 protobuf 编解码，不引入 gRPC 代码生成与 tonic 依赖。服务名按 `xray.app.stats.command.StatsService` 优先、`v2ray.core.app.stats.command.StatsService` 兜底，两者都探测并记住可用者。
+  3. `xray api statsquery` CLI 仅作为 gRPC 不可用时的一次性兜底；两者都失败则本次会话不再查询，界面显示「—」，**不得**退化为每轮循环拉起子进程。
+  4. 采样节流到每秒一次（`TRAFFIC_INTERVAL`），与工作线程的 250 ms 唤醒解耦。
+- **理由**：接口承载方式必须与固定的核心版本匹配，否则功能等于不存在；查询方式属于高频路径，不应每轮拉起进程。手写 protobuf 约 150 行、依赖面为零，比引入 tonic 及其传递依赖更契合本项目的依赖纪律。
+- **后果**：
+  - 可执行文件因新增 HTTP/2 客户端（reqwest 的 `http2` 特性）增大约 1 MB。
+  - 统计接口只监听回环端口。本机若装有 AdGuard 等 HTTP 过滤软件，回环 h2c 请求会被替换成拦截页，统计不可用（旧的 CLI 方案同样被拦截，非本次引入的退化）；集成测试用同栈控制探针识别该情况并跳过，不误判为缺陷。
+  - `api.listen` 简化写法要求核心 ≥ v1.8.12；固定核心 26.3.27 满足，ADR-007 的固定版本机制保证不会出现版本漂移。
+
+## ADR-009：release 配置使用 panic = "unwind" 以保证异常时执行资源清理
+
+- **日期**：2026-10-19
+- **状态**：Accepted
+- **背景**：release 配置此前使用 `panic = "abort"`，目的是压缩体积。但运行时的资源回收全部依赖 `Drop`：`Session::drop` 恢复 Windows 系统代理、`ManagedChild::drop` 终止受管核心进程树并回收日志线程、`TemporaryConfigs::drop` 清理临时核心配置、`Worker::drop` 通知后台线程退出。`abort` 会跳过所有析构函数，任何 panic 都会留下「系统代理仍指向本机失效端口」与「孤儿 xray/sing-box 进程」。
+- **决策**：release 改用 `panic = "unwind"`（即 Rust 默认值），使 panic 时析构链正常执行。同时：
+  1. 编辑器等 UI 路径不得再触发越界 panic（编辑器按 identity 校验目标，见 MIGRATION.md 同日记录）；
+  2. 后台线程（订阅刷新、诊断工具）用 `catch_unwind` 包裹，确保线程异常终止时仍回报事件，避免界面永久停留在忙碌状态。
+- **理由**：崩溃时「进程没了但系统代理还开着」比多 2 MB 严重得多。可执行文件由 5.8 MB 增至 7.9 MB，整包体积不变（核心二进制占绝大部分）。
+- **后果**：
+  - 体积增加约 2 MB（展开表）。
+  - 依赖 `Drop` 做清理的假设现在成立；但仍需保证 `Drop` 中的清理本身不 panic。
