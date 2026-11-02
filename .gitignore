@@ -67,6 +67,7 @@ crash_output.txt
 
 # Local AI workspace memory
 /.workbuddy-ai/
+/.zcode/
 
 # Runtime assembly outputs (CI and local)
 /.ci-runtime/
