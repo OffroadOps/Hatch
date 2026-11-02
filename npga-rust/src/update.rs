@@ -164,15 +164,21 @@ mod tests {
             html_url: "https://example.com".into(),
             prerelease: false,
             body: Some(
-                "# NPGA\n\n| NPGA.zip | ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789 |\n| NPGASetup.exe | 0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF |\n"
+                "# NPGA\n\n| NPGA.zip | ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789 |\n| NPGA-Rust.zip | 0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF |\n| NPGASetup.exe | FEDCBA9876543210FEDCBA9876543210FEDCBA9876543210FEDCBA9876543210 |\n"
                     .into(),
             ),
         };
         let all = checksums(&release, None);
-        assert_eq!(all.len(), 2);
+        assert_eq!(all.len(), 3);
         assert_eq!(all[0].0, "NPGA.zip");
         let filtered = checksums(&release, Some("setup"));
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].0, "NPGASetup.exe");
+        // The published asset is named NPGA-Rust.zip; "npga.zip" would never
+        // match it as a substring, so the runtime keyword must stay npga-rust.
+        let package = checksums(&release, Some("npga-rust"));
+        assert_eq!(package.len(), 1);
+        assert_eq!(package[0].0, "NPGA-Rust.zip");
+        assert_eq!(package[0].1.len(), 64);
     }
 }

@@ -73,13 +73,18 @@ fn run() -> anyhow::Result<()> {
     }
     #[cfg(windows)]
     let _instance = npga::platform::SingleInstance::acquire()?;
+    // The single-instance lock is held, so no other NPGA instance can own the
+    // session directories still on disk from a previous crash — sweep them.
+    let swept = npga::runtime::sweep_stale_temporary_configs(&paths);
     let store = Store::new(paths.data.clone());
     let loaded = npga::platform::recover_proxy(&paths.data.join("system-proxy.dpapi")).and_then(
         |recovered| {
             let (settings, warning) = store.load()?;
             Ok((
                 settings,
-                warning.or_else(|| recovered.then(|| "已恢复上次异常退出前的系统代理设置".into())),
+                warning
+                    .or_else(|| recovered.then(|| "已恢复上次异常退出前的系统代理设置".into()))
+                    .or(swept),
             ))
         },
     );

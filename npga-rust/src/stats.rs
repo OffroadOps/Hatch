@@ -27,8 +27,8 @@ const XRAY_STATS_METHODS: [&str; 2] = [
 ];
 
 pub enum StatsBackend {
-    /// Clash API external controller port of a sing-box instance.
-    SingBox(u16),
+    /// Clash API external controller port and session secret of a sing-box.
+    SingBox { port: u16, secret: String },
     /// API port plus the xray executable for the CLI fallback.
     Xray { port: u16, executable: PathBuf },
 }
@@ -49,9 +49,12 @@ pub struct StatsPoller {
 }
 
 impl StatsPoller {
-    pub fn sing_box(port: u16) -> Self {
+    pub fn sing_box(port: u16, secret: &str) -> Self {
         Self {
-            backend: StatsBackend::SingBox(port),
+            backend: StatsBackend::SingBox {
+                port,
+                secret: secret.to_owned(),
+            },
             client: http_client(),
             grpc_client: grpc_client(),
             xray_lock: Mutex::new(()),
@@ -72,7 +75,7 @@ impl StatsPoller {
     /// Cumulative (up, down) bytes for the accelerated outbound, if reachable.
     pub fn traffic(&self) -> Option<(u64, u64)> {
         match &self.backend {
-            StatsBackend::SingBox(port) => self.sing_box_traffic(*port),
+            StatsBackend::SingBox { port, secret } => self.sing_box_traffic(*port, secret),
             StatsBackend::Xray { port, executable } => {
                 if self.xray_unavailable.load(Ordering::Relaxed) {
                     return None;
@@ -93,9 +96,14 @@ impl StatsPoller {
             }
         }
     }
-    fn sing_box_traffic(&self, port: u16) -> Option<(u64, u64)> {
+    fn sing_box_traffic(&self, port: u16, secret: &str) -> Option<(u64, u64)> {
         let url = format!("http://127.0.0.1:{port}/traffic");
-        let response = self.client.get(&url).send().ok()?;
+        let response = self
+            .client
+            .get(&url)
+            .header("Authorization", format!("Bearer {secret}"))
+            .send()
+            .ok()?;
         if !response.status().is_success() {
             return None;
         }
@@ -395,32 +403,28 @@ pub fn api_ports(socks_port: u16) -> Option<(u16, u16)> {
 /// routing rule are needed. The legacy dokodemo-door inbound is not used
 /// because current cores ignore its `address` setting, which silently
 /// corrupted the gRPC preface and made every stats query fail.
+///
+/// The API carries no authentication, so it must always stay on the loopback
+/// interface and must never follow the (possibly LAN-wide) inbound listen
+/// address.
 pub fn attach_xray_stats(config: &mut serde_json::Value, api_port: u16) -> Result<()> {
-    let listen = config
-        .get("inbounds")
-        .and_then(|i| i.get(0))
-        .and_then(|i| i.get("listen"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("127.0.0.1")
-        .to_owned();
-    let host = if listen.contains(':') && !listen.starts_with('[') {
-        format!("[{listen}]")
-    } else {
-        listen
-    };
     config["api"] = serde_json::json!({
         "tag": "api",
-        "listen": format!("{host}:{api_port}"),
+        "listen": format!("127.0.0.1:{api_port}"),
         "services": ["StatsService"],
     });
     config["stats"] = serde_json::json!({});
     Ok(())
 }
 
-/// Attaches the sing-box Clash API external controller.
-pub fn attach_sing_box_stats(config: &mut serde_json::Value, api_port: u16) {
+/// Attaches the sing-box Clash API external controller. `secret` gates every
+/// HTTP call; callers must send it as `Authorization: Bearer <secret>`.
+pub fn attach_sing_box_stats(config: &mut serde_json::Value, api_port: u16, secret: &str) {
     config["experimental"] = serde_json::json!({
-        "clash_api": {"external_controller": format!("127.0.0.1:{api_port}")}
+        "clash_api": {
+            "external_controller": format!("127.0.0.1:{api_port}"),
+            "secret": secret,
+        }
     });
 }
 
@@ -520,11 +524,27 @@ mod tests {
     }
 
     #[test]
-    fn xray_api_listens_on_the_inbound_address() {
+    fn xray_api_always_listens_on_loopback() {
+        // With LAN sharing the inbound listens on 0.0.0.0; the unauthenticated
+        // stats API must never follow it onto the LAN interface.
         let mut config = serde_json::json!({
             "inbounds": [{"tag": "socks-in", "listen": "0.0.0.0", "port": 9995}]
         });
         attach_xray_stats(&mut config, 9998).unwrap();
-        assert_eq!(config["api"]["listen"], "0.0.0.0:9998");
+        assert_eq!(config["api"]["listen"], "127.0.0.1:9998");
+    }
+
+    #[test]
+    fn clash_api_carries_the_session_secret() {
+        let mut config = serde_json::json!({});
+        attach_sing_box_stats(&mut config, 9999, "session-secret");
+        assert_eq!(
+            config["experimental"]["clash_api"]["external_controller"],
+            "127.0.0.1:9999"
+        );
+        assert_eq!(
+            config["experimental"]["clash_api"]["secret"],
+            "session-secret"
+        );
     }
 }

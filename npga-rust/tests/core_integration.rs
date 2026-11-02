@@ -465,7 +465,10 @@ fn stats_api_attachments_validate_against_real_cores() {
         ..Node::default()
     };
     xray_node.set("UserID", "550e8400-e29b-41d4-a716-446655440000");
-    let xray_settings = settings(xray_node.clone());
+    let mut xray_settings = settings(xray_node.clone());
+    // LAN sharing: inbounds listen on 0.0.0.0 while the unauthenticated stats
+    // APIs must stay on the loopback interface.
+    xray_settings.local_address = "0.0.0.0".into();
     let (xray_api, sing_api) = npga::stats::api_ports(xray_settings.socks_port).unwrap();
     let mut config = core_config::xray(&xray_node, &xray_settings).unwrap();
     let inbounds_before = config["inbounds"].as_array().unwrap().len();
@@ -504,12 +507,17 @@ fn stats_api_attachments_validate_against_real_cores() {
         ..Node::default()
     };
     sing_node.set("Password", "test-only-secret");
-    let sing_settings = settings(sing_node.clone());
+    let mut sing_settings = settings(sing_node.clone());
+    sing_settings.local_address = "0.0.0.0".into();
     let mut config = core_config::sing_box(&sing_node, &sing_settings).unwrap();
-    npga::stats::attach_sing_box_stats(&mut config, sing_api);
+    npga::stats::attach_sing_box_stats(&mut config, sing_api, "test-only-session-secret");
     assert_eq!(
         config["experimental"]["clash_api"]["external_controller"],
         format!("127.0.0.1:{sing_api}")
+    );
+    assert_eq!(
+        config["experimental"]["clash_api"]["secret"],
+        "test-only-session-secret"
     );
     let file = paths.data.join("sing-stats.json");
     fs::write(&file, serde_json::to_vec(&config).unwrap()).unwrap();
