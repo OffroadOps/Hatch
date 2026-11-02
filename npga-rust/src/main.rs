@@ -60,7 +60,8 @@ fn run() -> anyhow::Result<()> {
     let paths = RuntimePaths::resolve(&std::env::current_exe()?, root, data);
     if diagnostics {
         println!(
-            "NPGA Rust 3.0.0\n运行目录：{}\n数据目录：{}",
+            "NPGA Rust {}\n运行目录：{}\n数据目录：{}",
+            npga::VERSION,
             paths.root.display(),
             paths.data.display()
         );

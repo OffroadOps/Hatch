@@ -7,6 +7,15 @@ updates:
       time: "00:00"
       timezone: "Asia/Shanghai"
 
+  - package-ecosystem: "cargo"
+    directory: "/npga-rust"
+    schedule:
+      interval: "daily"
+      time: "00:00"
+      timezone: "Asia/Shanghai"
+    labels:
+      - "automatic"
+
   - package-ecosystem: "nuget"
     directory: "/"
     schedule:

@@ -68,16 +68,28 @@ impl RuntimePaths {
         }
         Ok(path)
     }
+    /// Locates the mode library.
+    ///
+    /// Packaged builds carry `mode/` next to the executable (and a checkout
+    /// keeps it under `Storage/`), so those paths are tried first. The source
+    /// tree is only a development fallback and is used solely while it still
+    /// exists: `CARGO_MANIFEST_DIR` is baked in at compile time and points at
+    /// the build machine, which is meaningless on a user's disk.
     pub fn modes(&self) -> PathBuf {
-        let runtime = self.root.join("mode");
-        if runtime.is_dir() {
-            runtime
-        } else {
-            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                .parent()
-                .unwrap()
-                .join("Storage/mode")
+        let mut candidates = vec![self.root.join("mode"), self.root.join("Storage/mode")];
+        if let Some(parent) = self.root.parent() {
+            candidates.push(parent.join("Storage/mode"));
         }
+        if let Some(found) = candidates.into_iter().find(|path| path.is_dir()) {
+            return found;
+        }
+        let source = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .map(|workspace| workspace.join("Storage/mode"));
+        if let Some(source) = source.filter(|path| path.is_dir()) {
+            return source;
+        }
+        self.root.join("mode")
     }
     pub fn diagnostics(&self) -> Vec<(String, bool)> {
         [
@@ -155,10 +167,13 @@ pub enum Event {
     },
     /// A subscription finished downloading. Only the nodes owned by `id` are
     /// reported; the caller merges them into the live configuration so edits
-    /// made while the download was in flight are not lost.
+    /// made while the download was in flight are not lost. `skipped` counts
+    /// malformed entries that were dropped instead of failing the whole
+    /// refresh.
     Refreshed {
         id: String,
         nodes: Vec<Node>,
+        skipped: usize,
     },
     Checked(String),
     Traffic {
@@ -364,9 +379,10 @@ impl Worker {
                                 }))
                                 .unwrap_or_else(|_| Err(anyhow::anyhow!("订阅刷新任务异常终止")));
                             let _ = out.send(match result {
-                                Ok(nodes) => Event::Refreshed {
+                                Ok(parsed) => Event::Refreshed {
                                     id: subscription_id,
-                                    nodes,
+                                    nodes: parsed.nodes,
+                                    skipped: parsed.skipped,
                                 },
                                 Err(e) => Event::OperationFailed(format!("{e:#}")),
                             });
@@ -1321,5 +1337,33 @@ mod tests {
             data: temp.0.join("data"),
         };
         assert_eq!(sweep_stale_temporary_configs(&paths), None);
+    }
+
+    #[test]
+    fn modes_prefers_the_packaged_library() {
+        let temp = Temp::new();
+        let root = temp.0.join("NPGA-Rust");
+        fs::create_dir_all(root.join("mode")).unwrap();
+        // A checkout also has Storage/mode, but the packaged copy must win.
+        fs::create_dir_all(temp.0.join("Storage/mode")).unwrap();
+        let paths = RuntimePaths {
+            root: root.clone(),
+            data: temp.0.join("data"),
+        };
+        assert_eq!(paths.modes(), root.join("mode"));
+    }
+
+    #[test]
+    fn modes_falls_back_to_the_workspace_layout() {
+        let temp = Temp::new();
+        let root = temp.0.join("NPGA-Rust");
+        fs::create_dir_all(&root).unwrap();
+        let storage = temp.0.join("Storage/mode");
+        fs::create_dir_all(&storage).unwrap();
+        let paths = RuntimePaths {
+            root,
+            data: temp.0.join("data"),
+        };
+        assert_eq!(paths.modes(), storage);
     }
 }

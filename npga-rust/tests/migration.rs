@@ -136,9 +136,27 @@ fn invalid_subscription_never_replaces_nodes() {
         ..Subscription::default()
     };
     assert!(npga::subscription::replace(&settings, &sub, "error").is_err());
-    let link = links::export(&vless()).unwrap();
-    assert!(npga::subscription::replace(&settings, &sub, &format!("{link}\ninvalid")).is_err());
     assert_eq!(settings.nodes.len(), 1);
+}
+#[test]
+fn partial_subscription_still_updates_valid_nodes() {
+    let mut settings = Settings::default();
+    settings.nodes.push(vless());
+    let sub = Subscription {
+        remark: "测试节点".into(),
+        ..Subscription::default()
+    };
+    // One malformed line must not block the entries that do parse.
+    let link = links::export(&vless()).unwrap();
+    let next = npga::subscription::replace(&settings, &sub, &format!("{link}\ninvalid")).unwrap();
+    assert_eq!(next.nodes.len(), 2);
+    assert_eq!(
+        next.nodes
+            .iter()
+            .filter(|n| n.text("SubscriptionId") == sub.id)
+            .count(),
+        1
+    );
 }
 #[test]
 fn subscription_ownership_does_not_delete_manual_group() {

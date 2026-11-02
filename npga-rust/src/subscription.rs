@@ -5,7 +5,7 @@ use crate::{
 use anyhow::{Context, Result, bail};
 use std::{io::Read, time::Duration};
 
-pub fn refresh(settings: &Settings, subscription: &Subscription) -> Result<Vec<Node>> {
+pub fn refresh(settings: &Settings, subscription: &Subscription) -> Result<ParsedNodes> {
     let url = url::Url::parse(&subscription.link).context("订阅地址无效")?;
     if !matches!(url.scheme(), "https" | "http") {
         bail!("订阅只允许 HTTP/HTTPS");
@@ -35,27 +35,38 @@ pub fn refresh(settings: &Settings, subscription: &Subscription) -> Result<Vec<N
     )
 }
 
+/// Nodes read from a subscription plus the number of entries that were
+/// skipped, so the caller can warn about partial updates.
+pub struct ParsedNodes {
+    pub nodes: Vec<Node>,
+    pub skipped: usize,
+}
+
 /// Parses a subscription body into the nodes it owns.
 ///
 /// The nodes are returned separately from the rest of the settings so the
 /// caller can merge them into the *live* configuration. Replacing a whole
 /// settings snapshot would silently discard edits the user made while the
 /// download was in flight.
-pub fn parse_nodes(subscription: &Subscription, text: &str) -> Result<Vec<Node>> {
+///
+/// A malformed entry is skipped instead of failing the whole refresh: one bad
+/// line must not keep otherwise valid nodes from updating. `links::parse`
+/// still errors when *nothing* could be read, which is what keeps a broken or
+/// truncated response from replacing the existing nodes.
+pub fn parse_nodes(subscription: &Subscription, text: &str) -> Result<ParsedNodes> {
     let mut parsed = links::parse(text)?;
-    // A partially broken subscription must not delete working nodes either.
-    if parsed.rejected > 0 {
-        bail!("订阅含 {} 个无效条目，已保留原节点", parsed.rejected);
-    }
     for node in &mut parsed.nodes {
         node.group = subscription.remark.clone();
         node.set("SubscriptionId", subscription.id.clone());
     }
-    Ok(parsed.nodes)
+    Ok(ParsedNodes {
+        nodes: parsed.nodes,
+        skipped: parsed.rejected,
+    })
 }
 
 pub fn replace(settings: &Settings, subscription: &Subscription, text: &str) -> Result<Settings> {
-    let nodes = parse_nodes(subscription, text)?;
+    let nodes = parse_nodes(subscription, text)?.nodes;
     let selected = settings
         .nodes
         .get(settings.selected_node)
@@ -75,7 +86,7 @@ pub fn replace(settings: &Settings, subscription: &Subscription, text: &str) -> 
 /// Only the nodes owned by `subscription` are replaced; nodes from other
 /// subscriptions and manually added nodes are preserved.
 pub fn merge_nodes(current: &[Node], subscription: &Subscription, text: &str) -> Result<Vec<Node>> {
-    let nodes = parse_nodes(subscription, text)?;
+    let nodes = parse_nodes(subscription, text)?.nodes;
     let mut merged: Vec<Node> = current
         .iter()
         .filter(|n| n.text("SubscriptionId") != subscription.id)
@@ -83,4 +94,38 @@ pub fn merge_nodes(current: &[Node], subscription: &Subscription, text: &str) ->
         .collect();
     merged.extend(nodes);
     Ok(merged)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn subscription() -> Subscription {
+        Subscription {
+            remark: "测试订阅".into(),
+            ..Subscription::default()
+        }
+    }
+
+    #[test]
+    fn partial_subscription_keeps_valid_nodes_and_reports_skips() {
+        let subscription = subscription();
+        let text =
+            "trojan://p%2Ba%3Ass@example.com:443#ok\nnot-a-link\ntrojan://missing-host?x=1\n";
+        let parsed = parse_nodes(&subscription, text).unwrap();
+        assert_eq!(parsed.nodes.len(), 1);
+        assert_eq!(parsed.skipped, 2);
+        assert_eq!(parsed.nodes[0].remark, "ok");
+        assert_eq!(parsed.nodes[0].text("SubscriptionId"), subscription.id);
+    }
+
+    #[test]
+    fn unreadable_subscription_is_still_rejected() {
+        let subscription = subscription();
+        // Nothing valid means a broken or truncated download: the caller must
+        // keep the existing nodes instead of replacing them with an empty list.
+        assert!(parse_nodes(&subscription, "not-a-link").is_err());
+        assert!(parse_nodes(&subscription, "").is_err());
+        assert!(parse_nodes(&subscription, "<html>upstream error</html>").is_err());
+    }
 }

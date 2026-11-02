@@ -20,42 +20,81 @@ pub struct Release {
     pub body: Option<String>,
 }
 
-/// Compares dotted version strings ("v1.2.3" or "1.2.3-beta" style).
-/// Numeric segments compare numerically; a missing segment counts as 0;
-/// trailing non-numeric parts compare lexicographically.
+/// Compares dotted version strings ("v1.2.3" or "3.0.0-rc.1+build" style).
+///
+/// Numeric segments compare numerically and a missing segment counts as 0, so
+/// "3.0.0" equals "3.0.0.0". A pre-release suffix always sorts *below* the
+/// release it belongs to (semver §11), which is what makes "3.0.0-rc.1" older
+/// than "3.0.0"; pre-release identifiers compare field by field, numerically
+/// when both sides are numbers. Build metadata never affects precedence.
 pub fn compare_versions(left: &str, right: &str) -> std::cmp::Ordering {
-    let clean = |s: &str| s.trim().trim_start_matches(['v', 'V']).to_owned();
-    let parse = |s: &str| -> (Vec<u64>, String) {
-        let mut numbers = vec![];
-        let mut rest = String::new();
-        for part in clean(s).split('.') {
-            let digits: String = part.chars().take_while(|c| c.is_ascii_digit()).collect();
-            if digits.is_empty() {
-                rest.push_str(part);
-                rest.push('.');
-            } else {
-                numbers.push(digits.parse().unwrap_or(0));
-                let tail: String = part.chars().skip(digits.len()).collect();
-                if !tail.is_empty() {
-                    rest.push_str(&tail);
-                    rest.push('.');
+    use std::cmp::Ordering;
+
+    struct Version {
+        numbers: Vec<u64>,
+        pre: Option<String>,
+    }
+
+    fn parse(version: &str) -> Version {
+        let version = version.trim().trim_start_matches(['v', 'V']);
+        // Everything after '+' is build metadata and does not order releases.
+        let version = version.split('+').next().unwrap_or(version);
+        let (core, pre) = match version.split_once('-') {
+            Some((core, pre)) => (core, Some(pre.to_owned())),
+            None => (version, None),
+        };
+        let numbers = core
+            .split('.')
+            .map(|part| {
+                let digits: String = part.chars().take_while(|c| c.is_ascii_digit()).collect();
+                digits.parse().unwrap_or(0)
+            })
+            .collect();
+        Version { numbers, pre }
+    }
+
+    fn compare_pre(left: &str, right: &str) -> Ordering {
+        let mut left = left.split('.');
+        let mut right = right.split('.');
+        loop {
+            match (left.next(), right.next()) {
+                (None, None) => return Ordering::Equal,
+                // A shorter identifier list is older: 1.0.0-rc < 1.0.0-rc.1.
+                (None, Some(_)) => return Ordering::Less,
+                (Some(_), None) => return Ordering::Greater,
+                (Some(l), Some(r)) => {
+                    let order = match (l.parse::<u64>(), r.parse::<u64>()) {
+                        (Ok(l), Ok(r)) => l.cmp(&r),
+                        // Numeric identifiers always sort below alphanumeric ones.
+                        (Ok(_), Err(_)) => Ordering::Less,
+                        (Err(_), Ok(_)) => Ordering::Greater,
+                        (Err(_), Err(_)) => l.cmp(r),
+                    };
+                    if order != Ordering::Equal {
+                        return order;
+                    }
                 }
             }
         }
-        (numbers, rest)
-    };
-    let (left_numbers, left_rest) = parse(left);
-    let (right_numbers, right_rest) = parse(right);
-    let width = left_numbers.len().max(right_numbers.len());
+    }
+
+    let left = parse(left);
+    let right = parse(right);
+    let width = left.numbers.len().max(right.numbers.len());
     for i in 0..width {
-        let l = left_numbers.get(i).copied().unwrap_or(0);
-        let r = right_numbers.get(i).copied().unwrap_or(0);
+        let l = left.numbers.get(i).copied().unwrap_or(0);
+        let r = right.numbers.get(i).copied().unwrap_or(0);
         match l.cmp(&r) {
-            std::cmp::Ordering::Equal => continue,
+            Ordering::Equal => continue,
             other => return other,
         }
     }
-    left_rest.cmp(&right_rest)
+    match (left.pre.as_deref(), right.pre.as_deref()) {
+        (None, None) => Ordering::Equal,
+        (None, Some(_)) => Ordering::Greater,
+        (Some(_), None) => Ordering::Less,
+        (Some(l), Some(r)) => compare_pre(l, r),
+    }
 }
 
 pub fn check(current_version: &str, allow_prerelease: bool) -> Result<Option<Release>> {
@@ -154,6 +193,35 @@ mod tests {
         assert_eq!(
             compare_versions("v10.0.0", "v9.9.9"),
             std::cmp::Ordering::Greater
+        );
+    }
+
+    #[test]
+    fn prerelease_versions_sort_below_their_release() {
+        use std::cmp::Ordering;
+        // A release candidate must never win over the release it precedes,
+        // otherwise `check` would keep offering the same pre-release forever.
+        assert_eq!(compare_versions("v3.0.0-rc.1", "3.0.0"), Ordering::Less);
+        assert_eq!(compare_versions("3.0.0", "v3.0.0-beta"), Ordering::Greater);
+        assert_eq!(compare_versions("3.0.0-beta.2", "3.0.0"), Ordering::Less);
+        assert_eq!(
+            compare_versions("3.0.0-alpha", "3.0.0-beta"),
+            Ordering::Less
+        );
+        assert_eq!(
+            compare_versions("3.0.0-beta.10", "3.0.0-beta.2"),
+            Ordering::Greater
+        );
+        assert_eq!(
+            compare_versions("3.0.0-rc.1", "3.0.0-rc.1.1"),
+            Ordering::Less
+        );
+        // Build metadata is ignored and numeric pre-release fields are not
+        // compared as strings ("10" must be newer than "2").
+        assert_eq!(compare_versions("3.0.0+build.7", "v3.0.0"), Ordering::Equal);
+        assert_eq!(
+            compare_versions("3.0.1-beta", "3.0.0-rc.9"),
+            Ordering::Greater
         );
     }
 

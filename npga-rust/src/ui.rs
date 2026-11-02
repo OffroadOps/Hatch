@@ -443,7 +443,7 @@ impl App {
                     }
                     self.probes_left = self.probes_left.saturating_sub(1);
                 }
-                Event::Refreshed { id, nodes } => {
+                Event::Refreshed { id, nodes, skipped } => {
                     self.busy = false;
                     // Merge into the live configuration: a whole-snapshot
                     // replacement would discard the edits the user made while
@@ -463,7 +463,13 @@ impl App {
                         .unwrap_or(0);
                     let count = next.nodes.len();
                     if self.commit(next) {
-                        self.info(format!("订阅已更新，当前共 {count} 个节点"));
+                        if skipped > 0 {
+                            self.info(format!(
+                                "订阅已更新，当前共 {count} 个节点（跳过 {skipped} 个无效条目）"
+                            ));
+                        } else {
+                            self.info(format!("订阅已更新，当前共 {count} 个节点"));
+                        }
                     }
                 }
                 Event::Traffic { up, down } => {
@@ -548,7 +554,7 @@ impl App {
                             .color(MUTED),
                     );
                     ui.label(
-                        RichText::new("v3.0.0  ·  Rust Edition")
+                        RichText::new(format!("v{}  ·  Rust Edition", npga::VERSION))
                             .size(11.0)
                             .color(MUTED),
                     );
@@ -1511,7 +1517,10 @@ impl App {
                 logo(ui, 56.0);
                 ui.vertical(|ui| {
                     ui.label(RichText::new("NPGA Rust").size(26.0).strong().color(INK));
-                    ui.label(RichText::new("Netch.Plus Game Accelerator · v3.0.0").color(MUTED));
+                    ui.label(
+                        RichText::new(format!("Netch.Plus Game Accelerator · v{}", npga::VERSION))
+                            .color(MUTED),
+                    );
                 });
             });
             ui.add_space(22.0);

@@ -1,5 +1,8 @@
-/// Product version surfaced by the UI and the update checker.
-pub const VERSION: &str = "3.0.0";
+/// Product version surfaced by the UI, the update checker and diagnostics.
+///
+/// `npga-rust/Cargo.toml` is the single source of truth; hard-coding the
+/// number anywhere else lets the About pane and the release tag drift apart.
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub mod config;
 pub mod core_config;
