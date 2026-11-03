@@ -67,6 +67,37 @@ jobs:
           path: npga-rust/target/release/NPGA-Rust.exe
           if-no-files-found: error
 
+  msrv:
+    name: MSRV 1.88 (declared rust-version)
+    runs-on: windows-2022
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Rust 1.88.0
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.88.0
+
+      - name: Cache cargo (MSRV)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            npga-rust/target
+          key: ${{ runner.os }}-cargo-msrv-${{ hashFiles('npga-rust/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-msrv-
+
+      # rust-toolchain.toml pins 1.99.0 for development; the environment
+      # variable overrides it so the version declared in Cargo.toml
+      # (rust-version, kept in sync with this job) is what actually compiles.
+      - name: Check against the declared MSRV
+        working-directory: npga-rust
+        env:
+          RUSTUP_TOOLCHAIN: 1.88.0
+        run: cargo check --locked --all-targets
+
   package:
     name: Runtime bundle and portable package (smoke)
     runs-on: windows-2022
