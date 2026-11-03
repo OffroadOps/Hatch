@@ -99,7 +99,14 @@ mod tests {
 
     #[test]
     fn transfer_is_measured_and_reported() {
-        let download = |_url: &str| Ok(8 * 1024 * 1024u64);
+        // A pure in-memory download can measure zero elapsed time on Windows,
+        // where Instant ticks are coarse; the min_seconds check would then
+        // reject the sample. Sleep past the maximum tick so the measurement
+        // always spans at least one clock tick.
+        let download = |_url: &str| -> anyhow::Result<u64> {
+            std::thread::sleep(Duration::from_millis(20));
+            Ok(8 * 1024 * 1024u64)
+        };
         let result =
             measure_with(&download, &["https://example.test/big"], 1024, 0.0).expect("测速应成功");
         assert_eq!(result.bytes, 8 * 1024 * 1024);
