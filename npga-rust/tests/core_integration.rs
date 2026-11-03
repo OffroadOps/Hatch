@@ -564,7 +564,17 @@ fn process_tun_config_validates_against_real_sing_box() {
         port: 1080,
         ..Node::default()
     });
-    let config = core_config::tun_process(&settings, &mode, "203.0.113.7").unwrap();
+    let mut config = core_config::tun_process(&settings, &mode, "203.0.113.7").unwrap();
+    config["log"]["level"] = serde_json::json!("info");
+    // The runtime gates TUN child readiness on this API port; the attached
+    // config must stay valid for the pinned core.
+    let tun_api =
+        npga::stats::attach_tun_stats(&mut config, settings.socks_port, "test-only-session-secret")
+            .unwrap();
+    assert_eq!(
+        config["experimental"]["clash_api"]["external_controller"],
+        format!("127.0.0.1:{tun_api}")
+    );
     let file = paths.data.join("tun-process.json");
     fs::write(&file, serde_json::to_vec(&config).unwrap()).unwrap();
     let mut command = Command::new(paths.root.join("bin/sing-box.exe"));

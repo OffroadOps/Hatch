@@ -428,6 +428,21 @@ pub fn attach_sing_box_stats(config: &mut serde_json::Value, api_port: u16, secr
     });
 }
 
+/// Attaches the session-gated Clash API to a TUN (process or system-wide)
+/// sing-box child, on a port derived from the SOCKS port (+5, so it never
+/// collides with the two API surfaces above). A TUN child exposes no other
+/// TCP listener, so the runtime also probes this port to decide the child is
+/// ready. Returns the port, or `None` when the derivation would overflow.
+pub fn attach_tun_stats(
+    config: &mut serde_json::Value,
+    socks_port: u16,
+    secret: &str,
+) -> Option<u16> {
+    let port = socks_port.checked_add(5)?;
+    attach_sing_box_stats(config, port, secret);
+    Some(port)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -545,6 +560,26 @@ mod tests {
         assert_eq!(
             config["experimental"]["clash_api"]["secret"],
             "session-secret"
+        );
+    }
+
+    #[test]
+    fn tun_stats_use_the_port_above_the_other_api_surfaces() {
+        let mut config = serde_json::json!({});
+        let port = attach_tun_stats(&mut config, 9995, "session-secret").unwrap();
+        assert_eq!(port, 10000);
+        assert_eq!(
+            config["experimental"]["clash_api"]["external_controller"],
+            "127.0.0.1:10000"
+        );
+        assert_eq!(
+            config["experimental"]["clash_api"]["secret"],
+            "session-secret"
+        );
+        // Deriving past the port range must stay graceful.
+        assert_eq!(
+            attach_tun_stats(&mut serde_json::json!({}), 65531, "s"),
+            None
         );
     }
 }

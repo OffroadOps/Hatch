@@ -26,6 +26,10 @@ use std::{
     time::{Duration, Instant},
 };
 
+/// How long a proxy core may take to open its ports before startup fails.
+/// TUN adapter creation on cold machines can be slow, so this is generous.
+const CORE_START_TIMEOUT: Duration = Duration::from_secs(15);
+
 #[derive(Clone)]
 pub struct RuntimePaths {
     pub root: PathBuf,
@@ -692,6 +696,9 @@ impl ManagedChild {
                         break;
                     }
                     let line = scrub(String::from_utf8_lossy(&bytes).trim(), &node);
+                    // Fallback readiness signal only; the API port probe in
+                    // `ManagedChild::started` is primary, so a reworded log
+                    // line cannot stall connection startup.
                     if line.contains("sing-box started") {
                         ready.store(true, Ordering::Relaxed);
                     }
@@ -727,13 +734,21 @@ impl ManagedChild {
             if TcpStream::connect_timeout(&target, Duration::from_millis(100)).is_ok() {
                 return Ok(());
             }
-            if begin.elapsed() > Duration::from_secs(8) {
+            if begin.elapsed() > CORE_START_TIMEOUT {
                 bail!("核心启动超时，请查看运行日志");
             }
             thread::sleep(Duration::from_millis(50));
         }
     }
-    fn started(&mut self, cancel: &AtomicBool) -> Result<()> {
+    /// Waits until the sing-box TUN child is serving traffic. The primary
+    /// readiness signal is the API port attached by `stats::attach_tun_stats`
+    /// (a TUN child has no other TCP listener); the historical
+    /// "sing-box started" log marker stays as a fallback for a core that
+    /// drops the listener.
+    fn started(&mut self, api_port: Option<u16>, cancel: &AtomicBool) -> Result<()> {
+        let target: Option<SocketAddr> = api_port
+            .map(|port| format!("127.0.0.1:{port}").parse())
+            .transpose()?;
         let begin = Instant::now();
         loop {
             if cancel.load(Ordering::Relaxed) {
@@ -745,8 +760,13 @@ impl ManagedChild {
             if self.ready.load(Ordering::Relaxed) {
                 return Ok(());
             }
-            if begin.elapsed() > Duration::from_secs(8) {
-                bail!("TUN 启动超时");
+            if let Some(target) = target
+                && TcpStream::connect_timeout(&target, Duration::from_millis(100)).is_ok()
+            {
+                return Ok(());
+            }
+            if begin.elapsed() > CORE_START_TIMEOUT {
+                bail!("TUN 启动超时，请查看运行日志");
             }
             thread::sleep(Duration::from_millis(100));
         }
@@ -965,6 +985,9 @@ impl Session {
         };
         session.children[0].listening(&settings.local_address, settings.socks_port, cancel)?;
         session.children[0].listening(&settings.local_address, settings.http_port, cancel)?;
+        // One secret per session gates the TUN children's Clash API the same
+        // way the main process's API is gated.
+        let tun_secret = uuid::Uuid::new_v4().simple().to_string();
         match settings.route_kind {
             RouteKind::Local => {}
             RouteKind::System => {
@@ -996,6 +1019,8 @@ impl Session {
                 let mut config =
                     core_config::tun_process(settings, mode, &server.ip().to_string())?;
                 config["log"]["level"] = json!("info");
+                let tun_api =
+                    stats::attach_tun_stats(&mut config, settings.socks_port, &tun_secret);
                 let file = session._configs.write("tun-process.json", &config)?;
                 let executable = paths.bin("sing-box.exe")?;
                 check_core(&executable, &file, paths, events, node, cancel)?;
@@ -1007,11 +1032,17 @@ impl Session {
                     node,
                 )?;
                 session.children.push(child);
-                session.children.last_mut().unwrap().started(cancel)?;
+                session
+                    .children
+                    .last_mut()
+                    .unwrap()
+                    .started(tun_api, cancel)?;
             }
             RouteKind::Tun => {
                 let mut config = core_config::tun(settings, mode, &server.ip().to_string())?;
                 config["log"]["level"] = json!("info");
+                let tun_api =
+                    stats::attach_tun_stats(&mut config, settings.socks_port, &tun_secret);
                 let file = session._configs.write("tun.json", &config)?;
                 let executable = paths.bin("sing-box.exe")?;
                 check_core(&executable, &file, paths, events, node, cancel)?;
@@ -1023,7 +1054,11 @@ impl Session {
                     node,
                 )?;
                 session.children.push(child);
-                session.children.last_mut().unwrap().started(cancel)?;
+                session
+                    .children
+                    .last_mut()
+                    .unwrap()
+                    .started(tun_api, cancel)?;
             }
             RouteKind::Share => {
                 let mode = mode
