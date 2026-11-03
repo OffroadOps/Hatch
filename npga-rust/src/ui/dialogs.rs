@@ -4,7 +4,7 @@ use super::node_form::node_fields;
 use super::theme::{MUTED, primary};
 use super::{App, PendingSave};
 use eframe::egui::{self, RichText};
-use npga::{config, links};
+use npga::{config, links, model::RouteKind};
 use std::path::PathBuf;
 
 impl App {
@@ -233,6 +233,144 @@ impl App {
             } else if open {
                 self.subscription_editor = Some(editor);
             }
+        }
+        self.wizard_dialog(ctx);
+    }
+
+    /// The mode wizard: pick a program directory, confirm the programs that
+    /// will be proxied, save one `pathRegex` directory rule.
+    fn wizard_dialog(&mut self, ctx: &egui::Context) {
+        use std::path::Path;
+        let Some(w) = &mut self.wizard else {
+            return;
+        };
+        let mut open = true;
+        let mut action = 0;
+        egui::Window::new(if w.editing.is_some() {
+            "编辑游戏模式"
+        } else {
+            "新建游戏模式"
+        })
+        .open(&mut open)
+        .collapsible(false)
+        .resizable(false)
+        .default_width(540.0)
+        .show(ctx, |ui| {
+            ui.label(
+                RichText::new("目录下的所有程序（含子目录）都会走加速；游戏更新后的新程序自动生效，无需重新配置。")
+                    .size(12.0)
+                    .color(MUTED),
+            );
+            ui.add_space(12.0);
+            ui.horizontal(|ui| {
+                ui.label("名称：");
+                ui.add(
+                    egui::TextEdit::singleline(&mut w.title)
+                        .desired_width(f32::INFINITY)
+                        .hint_text("例如：英雄联盟"),
+                );
+            });
+            ui.add_space(8.0);
+            let mut committed = false;
+            ui.horizontal(|ui| {
+                ui.label("程序目录：");
+                let response = ui.add(
+                    egui::TextEdit::singleline(&mut w.directory)
+                        .desired_width(f32::INFINITY)
+                        .hint_text(r"D:\Games\MyGame"),
+                );
+                // Rescan on commit (Enter or focus loss), never per keystroke:
+                // a huge tree must not stall the UI thread.
+                committed = response.lost_focus();
+                if ui.button("浏览…").clicked()
+                    && let Some(dir) =
+                        rfd::FileDialog::new().set_title("选择游戏程序目录").pick_folder()
+                {
+                    w.directory = dir.to_string_lossy().into_owned();
+                    w.rescan_preview();
+                }
+            });
+            if committed {
+                w.rescan_preview();
+            }
+            ui.add_space(12.0);
+            if w.directory.trim().is_empty() {
+                ui.label(
+                    RichText::new("选择游戏安装目录后，这里会列出将加速的程序。")
+                        .size(12.0)
+                        .color(MUTED),
+                );
+            } else if Path::new(w.previewed.trim()).is_dir() && w.preview_total == 0 {
+                ui.label(
+                    RichText::new("目录里没有找到 .exe 程序，请确认目录是否正确。")
+                        .size(12.0)
+                        .color(MUTED),
+                );
+            } else if !w.preview.is_empty() {
+                ui.label(RichText::new(format!(
+                    "将加速以下程序（共 {} 个）：",
+                    w.preview_total
+                )).size(12.0));
+                egui::ScrollArea::vertical().max_height(160.0).show(ui, |ui| {
+                    for name in &w.preview {
+                        ui.label(RichText::new(format!("　· {name}")).size(12.0));
+                    }
+                    if w.preview_total > w.preview.len() {
+                        ui.label(RichText::new(format!(
+                            "　… 其余 {} 个省略",
+                            w.preview_total - w.preview.len()
+                        ))
+                        .size(12.0)
+                        .color(MUTED));
+                    }
+                });
+            }
+            if let Some(err) = &w.error {
+                ui.add_space(8.0);
+                ui.label(RichText::new(err).size(12.0).color(egui::Color32::from_rgb(196, 74, 74)));
+            }
+            ui.add_space(16.0);
+            ui.horizontal(|ui| {
+                if primary(
+                    ui,
+                    if w.editing.is_some() { "保存修改" } else { "创建模式" },
+                    [140.0, 36.0],
+                    !w.title.trim().is_empty() && !w.directory.trim().is_empty(),
+                ) {
+                    action = 1;
+                }
+                if ui.button("取消").clicked() {
+                    action = 2;
+                }
+            });
+        });
+        self.wizard = if open { self.wizard.take() } else { None };
+        if action == 1 {
+            let data = self.paths.data.clone();
+            let saved = self.wizard.as_mut().map(|w| w.save(&data));
+            match saved {
+                Some(Ok(file)) => {
+                    self.reload_modes();
+                    let creating = self.wizard.as_ref().is_some_and(|w| w.editing.is_none());
+                    if self.draft.route_kind == RouteKind::Process {
+                        let mut next = self.draft.clone();
+                        next.mode_file = file.to_string_lossy().into_owned();
+                        self.commit(next);
+                    }
+                    self.wizard = None;
+                    self.info(if creating {
+                        "已创建模式，选择它即可开启加速"
+                    } else {
+                        "已保存模式修改"
+                    });
+                }
+                // The wizard shows the reason itself and stays open.
+                Some(Err(_)) => {}
+                None => {}
+            }
+        }
+        if action == 2 {
+            self.wizard = None;
         }
     }
 }

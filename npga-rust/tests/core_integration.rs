@@ -558,6 +558,8 @@ fn process_tun_config_validates_against_real_sing_box() {
             "^launcher\\.exe$".into(),
         ],
         bypass: vec!["^browser\\.exe$".into(), "10.9.0.0/16".into()],
+        // A wizard directory rule must validate against the pinned core too.
+        path_regexes: vec![r"(?i)^D:\\Games\\Test Game\\".into()],
         options: serde_json::Value::Null,
         argument: String::new(),
     };

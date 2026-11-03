@@ -1022,7 +1022,10 @@ impl Session {
                         handle.unconvertible.join("、")
                     )));
                 }
-                if handle.names.is_empty() && handle.path_regexes.is_empty() {
+                if handle.names.is_empty()
+                    && handle.path_regexes.is_empty()
+                    && mode.path_regexes.is_empty()
+                {
                     bail!(
                         "进程模式需要至少一条可识别的进程规则（精确进程名、路径或 ^…$ 正则），当前模式没有可用规则；请修改模式规则"
                     );

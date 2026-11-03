@@ -177,9 +177,10 @@ pub struct ProcessRules {
     pub unconvertible: Vec<String>,
 }
 
-/// Escapes a legacy path rule so it matches literally inside
-/// `process_path_regex` (the regex crate has no `\Q…\E` quoting).
-fn regex_escape(literal: &str) -> String {
+/// Escapes a literal so it matches verbatim inside `process_path_regex`
+/// (the regex crate has no `\Q…\E` quoting). Also used by the mode wizard to
+/// build anchored directory rules.
+pub(crate) fn regex_escape(literal: &str) -> String {
     let mut out = String::with_capacity(literal.len());
     for c in literal.chars() {
         if "\\.^$|?*+()[]{}".contains(c) {
@@ -254,7 +255,14 @@ pub fn tun_process(settings: &Settings, mode: &Mode, server_ip: &str) -> Result<
     if mode.kind != RouteKind::Process {
         bail!("请选择进程模式");
     }
-    let handle = process_rules(&mode.handle);
+    let mut handle = process_rules(&mode.handle);
+    // Wizard-generated modes carry final `pathRegex` directory rules; they
+    // pass through untouched instead of going through the legacy converter.
+    handle
+        .path_regexes
+        .extend(mode.path_regexes.iter().cloned());
+    handle.path_regexes.sort();
+    handle.path_regexes.dedup();
     if handle.names.is_empty() && handle.path_regexes.is_empty() {
         bail!(
             "该模式的 {} 条进程规则均无法转换为 sing-box 规则（仅支持精确进程名、路径或 ^…$ 正则）",
@@ -428,6 +436,7 @@ mod tests {
                 "\\\\Steam\\\\".into(),
                 "10.9.0.0/16".into(),
             ],
+            path_regexes: Vec::new(),
             options: serde_json::Value::Null,
             argument: String::new(),
         };
@@ -501,10 +510,47 @@ mod tests {
             kind: RouteKind::Process,
             handle: vec!["helper".into()],
             bypass: vec![],
+            path_regexes: Vec::new(),
             options: serde_json::Value::Null,
             argument: String::new(),
         };
         let error = tun_process(&Settings::default(), &mode, "203.0.113.7").unwrap_err();
         assert!(error.to_string().contains("无法转换"));
+    }
+
+    #[test]
+    fn process_tun_proxies_wizard_directory_rules() {
+        // A wizard mode carries no legacy rules at all: one final directory
+        // regex must be enough to proxy (and must not trip the "unusable"
+        // bail that guards empty conversions).
+        let rule = r"(?i)^D:\\Games\\My Game\\";
+        let mode = Mode {
+            file: "wizard.json".into(),
+            title: "向导模式".into(),
+            kind: RouteKind::Process,
+            handle: vec![],
+            bypass: vec![],
+            path_regexes: vec![rule.into()],
+            options: serde_json::Value::Null,
+            argument: String::new(),
+        };
+        let config = tun_process(&Settings::default(), &mode, "203.0.113.7").unwrap();
+        let rules = config["route"]["rules"].as_array().unwrap();
+        let proxy = rules
+            .iter()
+            .find(|r| r["outbound"] == "proxy")
+            .expect("缺少 proxy 规则");
+        assert_eq!(proxy["process_path_regex"], serde_json::json!([rule]));
+        assert!(
+            proxy.get("process_name").is_none(),
+            "纯目录模式不应有精确名规则"
+        );
+        // DNS hijack covers the directory family as well.
+        assert!(
+            rules
+                .iter()
+                .any(|r| r["action"] == "hijack-dns" && r.get("process_path_regex").is_some()),
+            "缺少目录族 DNS 劫持规则"
+        );
     }
 }

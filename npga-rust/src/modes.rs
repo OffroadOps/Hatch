@@ -14,6 +14,9 @@ pub struct Mode {
     pub kind: RouteKind,
     pub handle: Vec<String>,
     pub bypass: Vec<String>,
+    /// Final `process_path_regex` rules (mode wizard directory rules); they
+    /// skip the legacy rule converter entirely.
+    pub path_regexes: Vec<String>,
     pub options: Value,
     pub argument: String,
 }
@@ -67,6 +70,7 @@ fn load(file: &Path, root: &Path, visited: &mut HashSet<PathBuf>) -> Result<Mode
         kind: RouteKind::Process,
         handle: vec![],
         bypass: vec![],
+        path_regexes: vec![],
         options: Value::Null,
         argument: "--preset uu".into(),
     };
@@ -89,6 +93,12 @@ fn load(file: &Path, root: &Path, visited: &mut HashSet<PathBuf>) -> Result<Mode
                 for value in values {
                     target.push(value.as_str().context("路由规则必须为文本")?.into());
                 }
+            }
+        }
+        if let Some(values) = v["pathRegex"].as_array() {
+            for value in values {
+                mode.path_regexes
+                    .push(value.as_str().context("pathRegex 必须为文本")?.into());
             }
         }
         mode.argument = v["argument"].as_str().unwrap_or("--preset uu").into();

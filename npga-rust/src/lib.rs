@@ -8,6 +8,7 @@ pub mod config;
 pub mod core_config;
 pub mod geoip;
 pub mod links;
+pub mod mode_wizard;
 pub mod model;
 pub mod modes;
 pub mod nat;

@@ -7,7 +7,7 @@ use eframe::egui::{self, Align, Color32, Frame, Layout, Margin, RichText, Stroke
 use node_form::field_template;
 use npga::{
     config::{Store, StoreWriter},
-    links,
+    links, mode_wizard,
     model::{Node, RouteKind, Settings, Subscription},
     modes::{self, Mode},
     platform,
@@ -94,6 +94,10 @@ pub struct App {
     worker: Worker,
     modes: Vec<Mode>,
     mode_errors: Vec<String>,
+    /// Wizard dialog state; `None` while closed.
+    wizard: Option<mode_wizard::ModeWizard>,
+    /// Selected user mode awaiting a second click on 删除.
+    mode_confirm_delete: Option<PathBuf>,
     page: Page,
     connection: Connection,
     active_core: String,
@@ -154,7 +158,11 @@ impl App {
                 true,
             ),
         };
-        let (modes, mode_errors) = modes::scan(&paths.modes());
+        let (mut modes, mut mode_errors) = modes::scan(&paths.modes());
+        // Wizard modes live next to settings.json and sort above the presets.
+        let (user_modes, user_errors) = modes::scan(&mode_wizard::user_modes_dir(&paths.data));
+        modes.splice(.., user_modes);
+        mode_errors.extend(user_errors);
         let worker = Worker::new(paths.clone());
         let writer = StoreWriter::new(store.clone());
         #[cfg(windows)]
@@ -175,6 +183,8 @@ impl App {
             worker,
             modes,
             mode_errors,
+            wizard: None,
+            mode_confirm_delete: None,
             page: match view {
                 "nodes" => Page::Nodes,
                 "subscriptions" => Page::Subscriptions,
@@ -229,6 +239,16 @@ impl App {
             && !self.busy
             && self.probes_left == 0
             && !self.load_error
+    }
+    /// Rescans the preset and wizard mode libraries (after a wizard save or
+    /// delete). User modes sort above the presets.
+    fn reload_modes(&mut self) {
+        let (mut modes, mut errors) = modes::scan(&self.paths.modes());
+        let (user_modes, user_errors) = modes::scan(&mode_wizard::user_modes_dir(&self.paths.data));
+        modes.splice(.., user_modes);
+        errors.extend(user_errors);
+        self.modes = modes;
+        self.mode_errors = errors;
     }
     /// Applies a settings change and queues it for writing.
     ///
@@ -841,6 +861,67 @@ impl App {
                                     );
                                 }
                             });
+                        ui.add_space(8.0);
+                        ui.horizontal(|ui| {
+                            // Only wizard-created modes (under data/modes) may
+                            // be edited or deleted; presets stay read-only.
+                            let selected_user = self
+                                .modes
+                                .iter()
+                                .find(|m| {
+                                    m.file.to_string_lossy() == next.mode_file
+                                        && m.kind == next.route_kind
+                                })
+                                .filter(|m| mode_wizard::is_user_mode(&m.file, &self.paths.data))
+                                .map(|m| m.file.clone());
+                            if ui.button("＋ 新建游戏模式").clicked() {
+                                self.wizard = Some(mode_wizard::ModeWizard::new());
+                                self.mode_confirm_delete = None;
+                            }
+                            if ui
+                                .add_enabled(
+                                    selected_user.is_some() && editable,
+                                    egui::Button::new("编辑"),
+                                )
+                                .clicked()
+                                && let Some(file) = selected_user.clone()
+                            {
+                                self.wizard = self
+                                    .modes
+                                    .iter()
+                                    .find(|m| m.file == file)
+                                    .map(mode_wizard::ModeWizard::edit);
+                                self.mode_confirm_delete = None;
+                            }
+                            let confirming = self
+                                .mode_confirm_delete
+                                .as_ref()
+                                .is_some_and(|f| Some(f) == selected_user.as_ref());
+                            let del_label = if confirming { "确认删除" } else { "删除" };
+                            if ui
+                                .add_enabled(
+                                    selected_user.is_some() && editable,
+                                    egui::Button::new(del_label),
+                                )
+                                .clicked()
+                            {
+                                if confirming {
+                                    if let Some(file) = selected_user.clone() {
+                                        match mode_wizard::delete(&file) {
+                                            Ok(()) => {
+                                                self.mode_confirm_delete = None;
+                                                next.mode_file.clear();
+                                                self.reload_modes();
+                                                self.info("已删除模式");
+                                            }
+                                            Err(e) => self.error(format!("删除失败：{e:#}")),
+                                        }
+                                    }
+                                } else {
+                                    self.mode_confirm_delete = selected_user.clone();
+                                }
+                            }
+                        });
                     }
                 });
                 if next.selected_node != self.settings.selected_node
