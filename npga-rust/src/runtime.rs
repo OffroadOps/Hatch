@@ -54,6 +54,20 @@ fn workspace_runtime_candidates() -> Vec<PathBuf> {
 fn workspace_runtime_candidates() -> Vec<PathBuf> {
     Vec::new()
 }
+/// Development-tree mode library, used only by debug builds running from a
+/// checkout. Release builds carry no development-machine paths at all — not
+/// even as strings.
+#[cfg(debug_assertions)]
+fn workspace_mode_dir() -> Option<PathBuf> {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .map(|workspace| workspace.join("Storage/mode"))
+        .filter(|path| path.is_dir())
+}
+#[cfg(not(debug_assertions))]
+fn workspace_mode_dir() -> Option<PathBuf> {
+    None
+}
 impl RuntimePaths {
     pub fn resolve(
         executable: &Path,
@@ -87,10 +101,10 @@ impl RuntimePaths {
     /// Locates the mode library.
     ///
     /// Packaged builds carry `mode/` next to the executable (and a checkout
-    /// keeps it under `Storage/`), so those paths are tried first. The source
-    /// tree is only a development fallback and is used solely while it still
-    /// exists: `CARGO_MANIFEST_DIR` is baked in at compile time and points at
-    /// the build machine, which is meaningless on a user's disk.
+    /// keeps it under `Storage/`), so those paths are tried first. A debug
+    /// build running from a checkout may additionally fall back to the source
+    /// tree's `Storage/mode`; release builds never search anything outside
+    /// the runtime root.
     pub fn modes(&self) -> PathBuf {
         let mut candidates = vec![self.root.join("mode"), self.root.join("Storage/mode")];
         if let Some(parent) = self.root.parent() {
@@ -99,10 +113,7 @@ impl RuntimePaths {
         if let Some(found) = candidates.into_iter().find(|path| path.is_dir()) {
             return found;
         }
-        let source = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .map(|workspace| workspace.join("Storage/mode"));
-        if let Some(source) = source.filter(|path| path.is_dir()) {
+        if let Some(source) = workspace_mode_dir() {
             return source;
         }
         self.root.join("mode")
@@ -1003,17 +1014,17 @@ impl Session {
                     .context("请选择进程模式")?;
                 // ADR-002: sing-box TUN with process_name routing replaced the
                 // Redirector + netfilter2 path (Phase 2 removal, 2026-10-17).
-                let (handle, unconvertible) = core_config::process_names(&mode.handle);
-                if !unconvertible.is_empty() {
+                let handle = core_config::process_rules(&mode.handle);
+                if !handle.unconvertible.is_empty() {
                     let _ = events.send(Event::Log(format!(
-                        "[进程模式] {} 条规则无法转换为精确进程名，已跳过：{}",
-                        unconvertible.len(),
-                        unconvertible.join("、")
+                        "[进程模式] {} 条规则无法转换为 sing-box 进程规则，已跳过：{}",
+                        handle.unconvertible.len(),
+                        handle.unconvertible.join("、")
                     )));
                 }
-                if handle.is_empty() {
+                if handle.names.is_empty() && handle.path_regexes.is_empty() {
                     bail!(
-                        "进程模式只支持精确进程名（如 ^game\\.exe$），当前模式没有可用规则；请修改模式规则"
+                        "进程模式需要至少一条可识别的进程规则（精确进程名、路径或 ^…$ 正则），当前模式没有可用规则；请修改模式规则"
                     );
                 }
                 let mut config =

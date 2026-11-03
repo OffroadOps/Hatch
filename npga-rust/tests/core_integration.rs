@@ -538,8 +538,10 @@ fn stats_api_attachments_validate_against_real_cores() {
     fs::remove_dir(&paths.data).unwrap();
 }
 
-/// ADR-002 preparation: the process-mode TUN configuration (process_name
-/// routing + scoped DNS hijack) must be accepted by the pinned sing-box.
+/// ADR-002 preparation: the process-mode TUN configuration (process_name +
+/// process_path_regex routing + scoped DNS hijack) must be accepted by the
+/// pinned sing-box. The handle list exercises all three rule families:
+/// anchored regexes, image names with spaces, and literal path fragments.
 #[test]
 #[ignore = "requires pinned bundled proxy cores; run with NPGA_RUNTIME_ROOT"]
 fn process_tun_config_validates_against_real_sing_box() {
@@ -551,8 +553,9 @@ fn process_tun_config_validates_against_real_sing_box() {
         kind: RouteKind::Process,
         handle: vec![
             "^game\\.exe$".into(),
+            "Battle.net Launcher.exe".into(),
+            "\\\\Battle.net\\\\".into(),
             "^launcher\\.exe$".into(),
-            "^.*无法转换的正则.*$".into(),
         ],
         bypass: vec!["^browser\\.exe$".into(), "10.9.0.0/16".into()],
         options: serde_json::Value::Null,
