@@ -16,7 +16,7 @@
     因此不产生外部流量、不修改任何持久配置。
 
 .PARAMETER SingBox
-    sing-box.exe 路径，默认取 release-net10 构建产物。
+    sing-box.exe 路径，默认取 .release-runtime 运行目录（Tools/AssembleRuntime.ps1 装配）。
 
 .PARAMETER Config
     配置文件路径，默认本目录 tun-process.json。
@@ -26,7 +26,7 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$SingBox = "D:\netch.plus\release-net10\Hatch\bin\sing-box.exe",
+    [string]$SingBox = "D:\netch.plus\.release-runtime\bin\sing-box.exe",
     [string]$Config = "$PSScriptRoot\tun-process.json"
 )
 
