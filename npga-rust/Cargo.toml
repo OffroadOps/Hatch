@@ -28,7 +28,7 @@ ipnet = "2.11"
 
 [target.'cfg(windows)'.dependencies]
 tray-icon = "0.21"
-winreg = "0.55"
+winreg = "0.56"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Cryptography", "Win32_System_Memory", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_UI_Shell", "Win32_Networking_WinInet", "Win32_Storage_FileSystem"] }
 
 [profile.release]
