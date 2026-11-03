@@ -31,6 +31,25 @@ pub struct RuntimePaths {
     pub root: PathBuf,
     pub data: PathBuf,
 }
+/// Development-tree runtime layouts, searched only by debug builds: the
+/// workspace path is baked in at compile time and is meaningless on a user's
+/// disk, so release builds carry none of these locations.
+#[cfg(debug_assertions)]
+fn workspace_runtime_candidates() -> Vec<PathBuf> {
+    match Path::new(env!("CARGO_MANIFEST_DIR")).parent() {
+        Some(workspace) => vec![
+            workspace.join("release-rust/NPGA-Rust"),
+            workspace.join("release-npga/NPGA"),
+            workspace.join(".release-runtime"),
+            workspace.to_owned(),
+        ],
+        None => vec![],
+    }
+}
+#[cfg(not(debug_assertions))]
+fn workspace_runtime_candidates() -> Vec<PathBuf> {
+    Vec::new()
+}
 impl RuntimePaths {
     pub fn resolve(
         executable: &Path,
@@ -38,23 +57,16 @@ impl RuntimePaths {
         data: Option<PathBuf>,
     ) -> Self {
         let exe_dir = executable.parent().unwrap_or(Path::new("."));
-        let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .unwrap()
-            .to_owned();
         let root = override_root.unwrap_or_else(|| {
             // Only Rust-era runtime layouts; the C# package directories moved
-            // to the external archive (refactor/DECISIONS.md ADR-007).
-            [
-                exe_dir.to_owned(),
-                workspace.join("release-rust/NPGA-Rust"),
-                workspace.join("release-npga/NPGA"),
-                workspace.join(".release-runtime"),
-                workspace.clone(),
-            ]
-            .into_iter()
-            .find(|p| p.join("bin/xray.exe").exists())
-            .unwrap_or(exe_dir.to_owned())
+            // to the external archive (refactor/DECISIONS.md ADR-007). The
+            // executable's own directory is always the most specific match.
+            let mut candidates = vec![exe_dir.to_owned()];
+            candidates.extend(workspace_runtime_candidates());
+            candidates
+                .into_iter()
+                .find(|p| p.join("bin/xray.exe").exists())
+                .unwrap_or_else(|| exe_dir.to_owned())
         });
         let root = std::path::absolute(root).unwrap_or_else(|_| exe_dir.to_owned());
         let data = std::path::absolute(data.unwrap_or_else(|| exe_dir.join("data/rust")))
@@ -1365,5 +1377,30 @@ mod tests {
             data: temp.0.join("data"),
         };
         assert_eq!(paths.modes(), storage);
+    }
+
+    #[test]
+    fn resolve_honours_the_explicit_overrides() {
+        let base = std::env::temp_dir();
+        let exe = base.join("app").join("NPGA.exe");
+        let paths =
+            RuntimePaths::resolve(&exe, Some(base.join("runtime")), Some(base.join("data")));
+        assert_eq!(paths.root, base.join("runtime"));
+        assert_eq!(paths.data, base.join("data"));
+    }
+
+    #[test]
+    fn resolve_defaults_follow_the_executable_and_stay_absolute() {
+        let base = std::env::temp_dir();
+        let exe = base
+            .join(format!("npga-resolve-{}", uuid::Uuid::new_v4()))
+            .join("app")
+            .join("NPGA.exe");
+        let paths = RuntimePaths::resolve(&exe, None, None);
+        // The data directory always follows the executable, whatever the root
+        // search decided on this machine; the root fallback must be absolute
+        // and must never panic (release builds know no workspace fallback).
+        assert_eq!(paths.data, exe.parent().unwrap().join("data").join("rust"));
+        assert!(paths.root.is_absolute());
     }
 }
