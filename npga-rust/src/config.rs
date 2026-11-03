@@ -9,7 +9,10 @@ use std::{
     thread::JoinHandle,
 };
 
-const SECRETS: &[&str] = &[
+/// Node fields carrying credentials. They are DPAPI-encrypted on disk
+/// (`credentials`) and masked in core log output (`runtime::scrub`); adding a
+/// sensitive field means adding it here and nowhere else.
+pub(crate) const SECRETS: &[&str] = &[
     "Password",
     "Username",
     "UserID",

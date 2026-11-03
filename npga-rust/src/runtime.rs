@@ -1,5 +1,5 @@
 use crate::{
-    core_config,
+    config, core_config,
     geoip::GeoIp,
     model::{Node, RouteKind, Settings},
     modes::Mode,
@@ -625,15 +625,7 @@ impl Drop for Worker {
 
 fn scrub(line: &str, node: &Node) -> String {
     let mut output = line.to_owned();
-    for key in [
-        "Password",
-        "Username",
-        "UserID",
-        "QUICSecret",
-        "PrivateKey",
-        "PreSharedKey",
-        "ObfuscationPassword",
-    ] {
+    for key in config::SECRETS {
         let secret = node.text(key);
         if !secret.is_empty() {
             output = output.replace(secret, "******");
@@ -1402,5 +1394,21 @@ mod tests {
         // and must never panic (release builds know no workspace fallback).
         assert_eq!(paths.data, exe.parent().unwrap().join("data").join("rust"));
         assert!(paths.root.is_absolute());
+    }
+
+    #[test]
+    fn scrub_masks_every_secret_field_of_the_node() {
+        // The mask list must be the same `SECRETS` the config encrypts, so a
+        // new credential field cannot leak into logs on one side only.
+        let mut node = Node::default();
+        for key in config::SECRETS {
+            node.set(key, format!("{key}-top-secret"));
+        }
+        let masked = scrub(
+            "Password-top-secret and UserID-top-secret must not leak",
+            &node,
+        );
+        assert!(!masked.contains("top-secret"), "日志泄漏凭据：{masked}");
+        assert!(masked.contains("******"), "应出现遮蔽标记：{masked}");
     }
 }
