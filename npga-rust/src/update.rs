@@ -7,6 +7,10 @@
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 
+// The product was renamed to NPGA, but the GitHub repository still lives at
+// `OffroadOps/Hatch` — the update check must point at the real slug. If the
+// repository is ever renamed, change it here AND on GitHub with a redirect in
+// place, otherwise `check()` silently finds no releases.
 const REPO: &str = "OffroadOps/Hatch";
 const API: &str = "https://api.github.com";
 
