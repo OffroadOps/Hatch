@@ -1,6 +1,6 @@
 # NPGA 重构工作区
 
-本目录是重构（详见仓库根目录 `REFACTORING_PROPOSAL.md`）的工作区：
+本目录是重构（评估见 `PROJECT_REVIEW.md`，路线图见 `REFACTORING_PROPOSAL.md`）的工作区：
 计划、决策记录、验证资产都放在这里，不属于产品代码。
 
 > 决策基线：`DECISIONS.md`（ADR 格式，新决策必须追加，不改旧条目）。
